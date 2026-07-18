@@ -77,11 +77,13 @@ class TextreamService: NSObject, ObservableObject {
         updatePageInfo()
 
         // Also show on external display if configured (same parsing as overlay)
-        let words = splitTextIntoWords(trimmed)
+        let tokenized = tokenizeText(trimmed)
+        let words = tokenized.words
         let totalCharCount = words.joined(separator: " ").count
         externalDisplayController.show(
             speechRecognizer: overlayController.speechRecognizer,
             words: words,
+            lineBreaks: tokenized.breaksBefore,
             totalCharCount: totalCharCount,
             hasNextPage: hasNextPage
         )
@@ -137,8 +139,10 @@ class TextreamService: NSObject, ObservableObject {
         updatePageInfo()
 
         // Also update external display content in-place
-        let words = splitTextIntoWords(trimmed)
+        let tokenized = tokenizeText(trimmed)
+        let words = tokenized.words
         externalDisplayController.overlayContent.words = words
+        externalDisplayController.overlayContent.lineBreaks = tokenized.breaksBefore
         externalDisplayController.overlayContent.totalCharCount = words.joined(separator: " ").count
         externalDisplayController.overlayContent.hasNextPage = hasNextPage
 
@@ -569,7 +573,8 @@ class TextreamService: NSObject, ObservableObject {
         }
 
         // Feed director server with speech recognizer
-        let words = splitTextIntoWords(trimmed)
+        let tokenized = tokenizeText(trimmed)
+        let words = tokenized.words
         let totalCharCount = words.joined(separator: " ").count
         directorServer.showContent(
             speechRecognizer: overlayController.speechRecognizer,
@@ -581,6 +586,7 @@ class TextreamService: NSObject, ObservableObject {
         externalDisplayController.show(
             speechRecognizer: overlayController.speechRecognizer,
             words: words,
+            lineBreaks: tokenized.breaksBefore,
             totalCharCount: totalCharCount,
             hasNextPage: false
         )
@@ -604,11 +610,13 @@ class TextreamService: NSObject, ObservableObject {
         // Preserve read progress: only update unread portion
         let preservedCharCount = overlayController.speechRecognizer.recognizedCharCount
 
-        let words = splitTextIntoWords(trimmed)
+        let tokenized = tokenizeText(trimmed)
+        let words = tokenized.words
         let totalCharCount = words.joined(separator: " ").count
 
         // Update overlay content without resetting speech progress
         overlayController.overlayContent.words = words
+        overlayController.overlayContent.lineBreaks = tokenized.breaksBefore
         overlayController.overlayContent.totalCharCount = totalCharCount
         overlayController.overlayContent.hasNextPage = false
 
@@ -620,6 +628,7 @@ class TextreamService: NSObject, ObservableObject {
 
         // Update external display & browser
         externalDisplayController.overlayContent.words = words
+        externalDisplayController.overlayContent.lineBreaks = tokenized.breaksBefore
         externalDisplayController.overlayContent.totalCharCount = totalCharCount
         if browserServer.isRunning {
             browserServer.updateContent(
