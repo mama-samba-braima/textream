@@ -40,6 +40,11 @@ class OverlayContent {
     var totalCharCount: Int = 0
     var hasNextPage: Bool = false
 
+    // Seek requested from a remote. `seekToken` increments on every request so
+    // observing views react even when the same offset is sent twice.
+    var seekCharOffset: Int = 0
+    var seekToken: Int = 0
+
     /// Populate `words`, `lineBreaks`, and `totalCharCount` from raw script text.
     func apply(text: String) {
         let tokenized = tokenizeText(text)
@@ -863,6 +868,9 @@ struct NotchOverlayView: View {
         .onChange(of: content.totalCharCount) { _, _ in
             timerWordProgress = 0
         }
+        .onChange(of: content.seekToken) { _, _ in
+            timerWordProgress = wordProgressForCharOffset(content.seekCharOffset)
+        }
     }
 
     private func updateFrameTracker() {
@@ -1379,6 +1387,9 @@ struct FloatingOverlayView: View {
         }
         .onChange(of: content.totalCharCount) { _, _ in
             timerWordProgress = 0
+        }
+        .onChange(of: content.seekToken) { _, _ in
+            timerWordProgress = wordProgressForCharOffset(content.seekCharOffset)
         }
     }
 
