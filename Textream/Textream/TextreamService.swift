@@ -10,6 +10,25 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// A named group of pages in the sidebar. Membership is by page ID, order is explicit.
+struct PageFolder: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var pageIDs: [UUID] = []
+    var isExpanded: Bool = true
+}
+
+/// On-disk shape of a `.textream` file that uses folders.
+///
+/// Documents without folders are still written as a bare array of strings, the format every
+/// released version of Textream reads, so organising pages never costs file compatibility.
+private struct TextreamDocument: Codable {
+    var version: Int = 2
+    var pages: [String]
+    var pageIDs: [UUID]
+    var folders: [PageFolder]
+}
+
 class TextreamService: NSObject, ObservableObject {
     static let shared = TextreamService()
     let overlayController = NotchOverlayController()
@@ -21,6 +40,11 @@ class TextreamService: NSObject, ObservableObject {
     @Published var directorIsReading = false
 
     @Published var pages: [String] = [""]
+    /// Stable identity per page, parallel to `pages`. Folders reference pages by ID so that
+    /// inserting, deleting or regrouping never corrupts membership the way indices would.
+    @Published private(set) var pageIDs: [UUID] = [UUID()]
+    /// Folders, in sidebar order. Their pages come first in the running order, ungrouped pages last.
+    @Published var folders: [PageFolder] = []
     @Published var currentPageIndex: Int = 0
     @Published var readPages: Set<Int> = []
 
@@ -167,6 +191,162 @@ class TextreamService: NSObject, ObservableObject {
     @Published var currentFileURL: URL?
     @Published var savedPages: [String] = [""]
 
+    // MARK: - Page Organization
+
+    /// Flat page indices belonging to `folderID`, or the ungrouped pages when it is nil.
+    func pageIndexes(inFolder folderID: UUID?) -> [Int] {
+        let grouped = Set(folders.flatMap { $0.pageIDs })
+        return pageIDs.indices.filter { index in
+            let id = pageIDs[index]
+            if let folderID {
+                return folders.first { $0.id == folderID }?.pageIDs.contains(id) ?? false
+            }
+            return !grouped.contains(id)
+        }
+    }
+
+    func folderID(forPageAt index: Int) -> UUID? {
+        guard pageIDs.indices.contains(index) else { return nil }
+        let id = pageIDs[index]
+        return folders.first { $0.pageIDs.contains(id) }?.id
+    }
+
+    func pageID(at index: Int) -> UUID? {
+        pageIDs.indices.contains(index) ? pageIDs[index] : nil
+    }
+
+    /// Repairs the ID list if pages were mutated directly, and drops stale folder references.
+    func ensurePageIDs() {
+        if pageIDs.count < pages.count {
+            pageIDs.append(contentsOf: (0..<(pages.count - pageIDs.count)).map { _ in UUID() })
+        } else if pageIDs.count > pages.count {
+            pageIDs.removeLast(pageIDs.count - pages.count)
+        }
+        let known = Set(pageIDs)
+        for index in folders.indices {
+            folders[index].pageIDs.removeAll { !known.contains($0) }
+        }
+    }
+
+    @discardableResult
+    func addPage(to folderID: UUID? = nil) -> Int {
+        ensurePageIDs()
+        let id = UUID()
+        pages.append("")
+        pageIDs.append(id)
+        if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
+            folders[index].pageIDs.append(id)
+            folders[index].isExpanded = true
+        }
+        rebuildOrder(keeping: id)
+        return currentPageIndex
+    }
+
+    func removePage(at index: Int) {
+        guard pages.count > 1, pages.indices.contains(index) else { return }
+        ensurePageIDs()
+        let removedID = pageIDs[index]
+        let survivingID: UUID? = currentPageIndex == index ? nil : pageID(at: currentPageIndex)
+
+        pages.remove(at: index)
+        pageIDs.remove(at: index)
+        for folderIndex in folders.indices {
+            folders[folderIndex].pageIDs.removeAll { $0 == removedID }
+        }
+        readPages = Set(readPages.compactMap { page in
+            if page == index { return nil }
+            return page > index ? page - 1 : page
+        })
+        if currentPageIndex >= pages.count {
+            currentPageIndex = pages.count - 1
+        } else if currentPageIndex > index {
+            currentPageIndex -= 1
+        }
+        rebuildOrder(keeping: survivingID)
+    }
+
+    /// Moves a page into a folder, or out to the ungrouped section when `folderID` is nil.
+    /// The page being edited stays selected, even when the move reorders the document around it.
+    func movePage(id: UUID, to folderID: UUID?) {
+        ensurePageIDs()
+        let keptID = pageID(at: currentPageIndex)
+        for index in folders.indices {
+            folders[index].pageIDs.removeAll { $0 == id }
+        }
+        if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
+            folders[index].pageIDs.append(id)
+            folders[index].isExpanded = true
+        }
+        rebuildOrder(keeping: keptID ?? id)
+    }
+
+    @discardableResult
+    func addFolder(named name: String) -> PageFolder {
+        let folder = PageFolder(name: name)
+        folders.append(folder)
+        return folder
+    }
+
+    func renameFolder(id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = folders.firstIndex(where: { $0.id == id }) else { return }
+        folders[index].name = trimmed
+    }
+
+    /// Removes the folder. Its pages survive and drop back into the ungrouped section.
+    func deleteFolder(id: UUID) {
+        let keptID = pageID(at: currentPageIndex)
+        folders.removeAll { $0.id == id }
+        rebuildOrder(keeping: keptID)
+    }
+
+    func moveFolder(id: UUID, by offset: Int) {
+        guard let index = folders.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard folders.indices.contains(target) else { return }
+        let keptID = pageID(at: currentPageIndex)
+        folders.swapAt(index, target)
+        rebuildOrder(keeping: keptID)
+    }
+
+    /// Replaces the whole document. Used by open and import.
+    func replacePages(_ newPages: [String], ids: [UUID]? = nil, folders newFolders: [PageFolder] = []) {
+        let texts = newPages.isEmpty ? [""] : newPages
+        pages = texts
+        pageIDs = ids?.count == texts.count ? (ids ?? []) : texts.map { _ in UUID() }
+        folders = newFolders
+        currentPageIndex = 0
+        readPages.removeAll()
+        rebuildOrder(keeping: pageIDs.first)
+    }
+
+    /// Reorders pages so folder contents are contiguous and in folder order, ungrouped pages last.
+    /// The sidebar shows this same order, so what you read is what you see.
+    private func rebuildOrder(keeping selectedID: UUID?) {
+        ensurePageIDs()
+        var textByID: [UUID: String] = [:]
+        for (index, id) in pageIDs.enumerated() where pages.indices.contains(index) {
+            textByID[id] = pages[index]
+        }
+        let readIDs = Set(readPages.compactMap { pageID(at: $0) })
+
+        let grouped = folders.flatMap { $0.pageIDs }
+        let groupedSet = Set(grouped)
+        let loose = pageIDs.filter { !groupedSet.contains($0) }
+        let ordered = grouped + loose
+        guard ordered.count == pageIDs.count else { return }
+
+        pageIDs = ordered
+        pages = ordered.map { textByID[$0] ?? "" }
+        readPages = Set(ordered.indices.filter { readIDs.contains(ordered[$0]) })
+
+        if let selectedID, let index = ordered.firstIndex(of: selectedID) {
+            currentPageIndex = index
+        } else {
+            currentPageIndex = max(0, min(currentPageIndex, pages.count - 1))
+        }
+    }
+
     // MARK: - File Operations
 
     func saveFile() {
@@ -191,7 +371,14 @@ class TextreamService: NSObject, ObservableObject {
 
     private func saveToURL(_ url: URL) {
         do {
-            let data = try JSONEncoder().encode(pages)
+            ensurePageIDs()
+            let data: Data
+            if folders.isEmpty {
+                data = try JSONEncoder().encode(pages)
+            } else {
+                let document = TextreamDocument(pages: pages, pageIDs: pageIDs, folders: folders)
+                data = try JSONEncoder().encode(document)
+            }
             try data.write(to: url, options: .atomic)
             currentFileURL = url
             savedPages = pages
@@ -242,10 +429,8 @@ class TextreamService: NSObject, ObservableObject {
             do {
                 let notes = try PresentationNotesExtractor.extractNotes(from: url)
                 DispatchQueue.main.async {
-                    self?.pages = notes
+                    self?.replacePages(notes)
                     self?.savedPages = notes
-                    self?.currentPageIndex = 0
-                    self?.readPages.removeAll()
                     self?.currentFileURL = nil
                 }
             } catch {
@@ -287,12 +472,19 @@ class TextreamService: NSObject, ObservableObject {
     func openFileAtURL(_ url: URL) {
         do {
             let data = try Data(contentsOf: url)
-            let loadedPages = try JSONDecoder().decode([String].self, from: data)
-            guard !loadedPages.isEmpty else { return }
-            pages = loadedPages
-            savedPages = loadedPages
-            currentPageIndex = 0
-            readPages.removeAll()
+            let decoder = JSONDecoder()
+            let loadedPages: [String]
+            if let legacy = try? decoder.decode([String].self, from: data) {
+                loadedPages = legacy
+                guard !loadedPages.isEmpty else { return }
+                replacePages(loadedPages)
+            } else {
+                let document = try decoder.decode(TextreamDocument.self, from: data)
+                loadedPages = document.pages
+                guard !loadedPages.isEmpty else { return }
+                replacePages(document.pages, ids: document.pageIDs, folders: document.folders)
+            }
+            savedPages = pages
             currentFileURL = url
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch {

@@ -21,6 +21,8 @@ struct ContentView: View {
     @State private var dropAlertTitle: String = "Import Error"
     @State private var showSettings = false
     @State private var showAbout = false
+    @State private var renamingFolderID: UUID?
+    @State private var folderNameDraft: String = ""
     @State private var languageSuggestion: SpeechLanguageSuggestion?
     @State private var ignoredLanguageIdentifier: String?
     @State private var languageDetectionTask: Task<Void, Never>?
@@ -557,8 +559,7 @@ Happy presenting! [wave]
                             stopRecording()
                         }
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            service.pages.append("")
-                            service.currentPageIndex = service.pages.count - 1
+                            _ = service.addPage()
                         }
                     } label: {
                         HStack(spacing: 3) {
@@ -678,52 +679,275 @@ Happy presenting! [wave]
 
     private var pageSidebar: some View {
         List(selection: sidebarSelection) {
-            ForEach(Array(service.pages.enumerated()), id: \.offset) { index, page in
-                Label {
-                    Text(pagePreview(page))
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                } icon: {
-                    Text("\(index + 1)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .frame(width: 20, height: 20)
-                        .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
-                }
-                .tag(index)
-                .contextMenu {
-                    if service.pages.count > 1 {
-                        Button(role: .destructive) {
-                            removePage(at: index)
-                        } label: {
-                            Label("Delete Page", systemImage: "trash")
+            ForEach(service.folders) { folder in
+                Section(isExpanded: expansionBinding(for: folder)) {
+                    let indexes = service.pageIndexes(inFolder: folder.id)
+                    if indexes.isEmpty {
+                        Text("Drag pages here")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 2)
+                    } else {
+                        ForEach(indexes, id: \.self) { index in
+                            pageRow(at: index)
                         }
                     }
+                } header: {
+                    folderHeader(folder)
+                }
+            }
+
+            Section {
+                ForEach(service.pageIndexes(inFolder: nil), id: \.self) { index in
+                    pageRow(at: index)
+                }
+            } header: {
+                if !service.folders.isEmpty {
+                    Text("Pages")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .dropDestination(for: String.self) { items, _ in
+                            movePages(items, to: nil)
+                        }
                 }
             }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
+            sidebarFooter
+        }
+        .alert("Rename Folder", isPresented: renamingBinding) {
+            TextField("Folder name", text: $folderNameDraft)
+            Button("Cancel", role: .cancel) { renamingFolderID = nil }
+            Button("Rename") {
+                if let id = renamingFolderID {
+                    service.renameFolder(id: id, to: folderNameDraft)
+                }
+                renamingFolderID = nil
+            }
+        }
+    }
+
+    private var sidebarFooter: some View {
+        HStack(spacing: 2) {
             Button {
                 if isRecording {
                     stopRecording()
                 }
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    service.pages.append("")
-                    service.currentPageIndex = service.pages.count - 1
+                    _ = service.addPage()
                 }
             } label: {
                 Label("Add Page", systemImage: "plus")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
+            .help("Add a new page")
+
+            Spacer(minLength: 0)
+
+            Button {
+                newFolder()
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("New folder")
+
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
         }
+        .padding(.horizontal, 4)
+        .background(.bar)
+    }
+
+    private func folderHeader(_ folder: PageFolder) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text(folder.name)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text("\(folder.pageIDs.count)")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+        .dropDestination(for: String.self) { items, _ in
+            movePages(items, to: folder.id)
+        }
+        .contextMenu {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    _ = service.addPage(to: folder.id)
+                }
+            } label: {
+                Label("Add Page to Folder", systemImage: "plus")
+            }
+            Button {
+                folderNameDraft = folder.name
+                renamingFolderID = folder.id
+            } label: {
+                Label("Rename Folder…", systemImage: "pencil")
+            }
+            Divider()
+            Button {
+                service.moveFolder(id: folder.id, by: -1)
+            } label: {
+                Label("Move Up", systemImage: "arrow.up")
+            }
+            Button {
+                service.moveFolder(id: folder.id, by: 1)
+            } label: {
+                Label("Move Down", systemImage: "arrow.down")
+            }
+            Divider()
+            Button(role: .destructive) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    service.deleteFolder(id: folder.id)
+                }
+            } label: {
+                Label("Delete Folder", systemImage: "trash")
+            }
+        }
+    }
+
+    private func pageRow(at index: Int) -> some View {
+        let page = index < service.pages.count ? service.pages[index] : ""
+        return Label {
+            Text(pagePreview(page))
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } icon: {
+            Text("\(index + 1)")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.primary)
+                .frame(width: 20, height: 20)
+                .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .tag(index)
+        .draggable(service.pageID(at: index)?.uuidString ?? "")
+        .contextMenu {
+            pageMenu(for: index)
+        }
+    }
+
+    @ViewBuilder
+    private func pageMenu(for index: Int) -> some View {
+        let currentFolder = service.folderID(forPageAt: index)
+
+        if !service.folders.isEmpty {
+            Menu {
+                ForEach(service.folders) { folder in
+                    Button {
+                        movePage(at: index, to: folder.id)
+                    } label: {
+                        if folder.id == currentFolder {
+                            Label(folder.name, systemImage: "checkmark")
+                        } else {
+                            Text(folder.name)
+                        }
+                    }
+                }
+                Divider()
+                Button("No Folder") {
+                    movePage(at: index, to: nil)
+                }
+            } label: {
+                Label("Move to Folder", systemImage: "folder")
+            }
+        }
+
+        Button {
+            newFolder(withPageAt: index)
+        } label: {
+            Label("New Folder with Page", systemImage: "folder.badge.plus")
+        }
+
+        if service.pages.count > 1 {
+            Divider()
+            Button(role: .destructive) {
+                removePage(at: index)
+            } label: {
+                Label("Delete Page", systemImage: "trash")
+            }
+        }
+    }
+
+    private var renamingBinding: Binding<Bool> {
+        Binding(
+            get: { renamingFolderID != nil },
+            set: { if !$0 { renamingFolderID = nil } }
+        )
+    }
+
+    private func expansionBinding(for folder: PageFolder) -> Binding<Bool> {
+        Binding(
+            get: {
+                service.folders.first { $0.id == folder.id }?.isExpanded ?? true
+            },
+            set: { newValue in
+                guard let index = service.folders.firstIndex(where: { $0.id == folder.id }) else { return }
+                service.folders[index].isExpanded = newValue
+            }
+        )
+    }
+
+    /// Handles a sidebar drop payload of page-ID strings.
+    private func movePages(_ items: [String], to folderID: UUID?) -> Bool {
+        let ids = items.compactMap { UUID(uuidString: $0) }
+        guard !ids.isEmpty else { return false }
+        if isRecording {
+            stopRecording()
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            for id in ids {
+                service.movePage(id: id, to: folderID)
+            }
+        }
+        return true
+    }
+
+    private func movePage(at index: Int, to folderID: UUID?) {
+        guard let id = service.pageID(at: index) else { return }
+        if isRecording {
+            stopRecording()
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            service.movePage(id: id, to: folderID)
+        }
+    }
+
+    private func newFolder(withPageAt index: Int? = nil) {
+        let name = "Folder \(service.folders.count + 1)"
+        let folder = service.addFolder(named: name)
+        if let index, let id = service.pageID(at: index) {
+            service.movePage(id: id, to: folder.id)
+        }
+        folderNameDraft = name
+        renamingFolderID = folder.id
     }
 
     // MARK: - Actions
@@ -734,12 +958,7 @@ Happy presenting! [wave]
             stopRecording()
         }
         withAnimation(.easeInOut(duration: 0.2)) {
-            service.pages.remove(at: index)
-            if service.currentPageIndex >= service.pages.count {
-                service.currentPageIndex = service.pages.count - 1
-            } else if service.currentPageIndex > index {
-                service.currentPageIndex -= 1
-            }
+            service.removePage(at: index)
         }
     }
 
@@ -778,10 +997,8 @@ Happy presenting! [wave]
             do {
                 let notes = try PresentationNotesExtractor.extractNotes(from: url)
                 DispatchQueue.main.async {
-                    service.pages = notes
+                    service.replacePages(notes)
                     service.savedPages = notes
-                    service.currentPageIndex = 0
-                    service.readPages.removeAll()
                     service.currentFileURL = nil
                     isImporting = false
                 }
