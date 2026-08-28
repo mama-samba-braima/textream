@@ -1534,8 +1534,9 @@ struct SettingsView: View {
 
 /// Miniature of the external display showing how the lens padding frames the script.
 ///
-/// Text scrolls and is clipped to the padded band exactly as it is on the real display, so the
-/// framing can be dialled in without a second screen attached.
+/// The sample text loops forever inside the padded band and takes no input, so scrolling the
+/// settings pane over it never disturbs it. Padding, font size and the band geometry come from
+/// `ExternalLensMetrics`, the same source the real prompter uses, so the framing cannot drift.
 struct ExternalLensPreview: View {
     let screenSize: CGSize
     let paddingH: Double
@@ -1543,13 +1544,22 @@ struct ExternalLensPreview: View {
 
     /// Height reserved under the text for the waveform row (spacer + controls), in screen points.
     private static let controlsBlock: CGFloat = 60
+    /// Seconds for the sample text to travel its own height once.
+    private static let loopDuration: Double = 9
 
-    private static let sampleWords = "Keep your eyes on the lens and let the words come to you the audience never sees you reading only that you are talking to them one steady line at a time"
-        .split(separator: " ")
-        .map(String.init)
+    private static let sampleLines = [
+        "Keep your eyes on the lens",
+        "and let the words come to",
+        "you. The audience never",
+        "sees you reading, only",
+        "that you are talking",
+        "straight to them, one",
+        "steady line at a time."
+    ]
 
-    @State private var wordProgress: Double = 0
-    private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    /// 0...1 through one pass of the sample block. Wraps, so the scroll never ends.
+    @State private var phase: CGFloat = 0
+    private let ticker = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
 
     private var settings: NotchSettings { .shared }
 
@@ -1567,25 +1577,40 @@ struct ExternalLensPreview: View {
             let topPad = lens.vPad * scale
             let bottomPad = max(lens.vPad, 24) * scale
             let controls = Self.controlsBlock * scale
+            let font = max(5, lens.fontSize * scale)
+            let lineHeight = font * 1.4
+            let blockHeight = lineHeight * CGFloat(Self.sampleLines.count)
+            let bandHeight = max(lineHeight, geo.size.height - topPad - bottomPad - controls)
+            let offset = phase * blockHeight
+            // Enough copies stacked back to back to cover the band at any padding
+            let copies = max(2, Int((bandHeight / blockHeight).rounded(.up)) + 1)
 
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 Color.black
 
                 VStack(spacing: 0) {
-                    SpeechScrollView(
-                        words: Self.sampleWords,
-                        highlightedCharCount: Self.sampleWords.count * 5,
-                        font: .systemFont(ofSize: max(5, lens.fontSize * scale), weight: .semibold),
-                        highlightColor: settings.fontColorPreset.color,
-                        cueColor: settings.cueColorPreset.color,
-                        cueUnreadOpacity: settings.cueBrightness.unreadOpacity,
-                        cueReadOpacity: settings.cueBrightness.readOpacity,
-                        smoothScroll: true,
-                        smoothWordProgress: wordProgress,
-                        isListening: true
+                    marquee(
+                        copies: copies,
+                        lineHeight: lineHeight,
+                        blockHeight: blockHeight,
+                        bandHeight: bandHeight,
+                        offset: offset,
+                        font: font
                     )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(false)
+                    .frame(height: bandHeight, alignment: .top)
+                    .clipped()
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .white, location: 0.12),
+                                .init(color: .white, location: 0.88),
+                                .init(color: .clear, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
 
                     Spacer().frame(height: 20 * scale)
 
@@ -1608,6 +1633,19 @@ struct ExternalLensPreview: View {
                     .padding(.horizontal, hPad)
                     .padding(.top, topPad)
                     .padding(.bottom, bottomPad + controls)
+
+                // Elapsed timer sits in the screen corner, outside the padding
+                if settings.showElapsedTime {
+                    Text("01:23")
+                        .font(.system(
+                            size: max(4, ExternalLensMetrics.timerFontSize * scale),
+                            weight: .medium,
+                            design: .monospaced
+                        ))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.top, ExternalLensMetrics.timerInset.height * scale)
+                        .padding(.leading, ExternalLensMetrics.timerInset.width * scale)
+                }
             }
         }
         .aspectRatio(aspect, contentMode: .fit)
@@ -1617,12 +1655,45 @@ struct ExternalLensPreview: View {
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
         )
-        .onReceive(scrollTimer) { _ in
-            let total = Double(Self.sampleWords.count)
-            wordProgress += 1.2 * 0.05
-            if wordProgress >= total {
-                wordProgress = 0
+        .allowsHitTesting(false)
+        .onReceive(ticker) { _ in
+            phase += CGFloat(1.0 / 60.0 / Self.loopDuration)
+            if phase >= 1 { phase -= 1 }
+        }
+    }
+
+    /// The sample block repeated back to back and shifted up, so it reads as one endless script.
+    private func marquee(
+        copies: Int,
+        lineHeight: CGFloat,
+        blockHeight: CGFloat,
+        bandHeight: CGFloat,
+        offset: CGFloat,
+        font: CGFloat
+    ) -> some View {
+        ZStack(alignment: .top) {
+            ForEach(0..<copies, id: \.self) { copy in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Self.sampleLines.indices, id: \.self) { index in
+                        let top = CGFloat(copy) * blockHeight + CGFloat(index) * lineHeight - offset
+                        let isCurrent = abs(top + lineHeight / 2 - bandHeight / 2) < lineHeight / 2
+
+                        Text(Self.sampleLines[index])
+                            .font(.system(size: font, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(
+                                isCurrent
+                                    ? settings.fontColorPreset.color
+                                    : settings.cueColorPreset.color.opacity(settings.cueBrightness.unreadOpacity)
+                            )
+                            .frame(height: lineHeight, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .offset(y: CGFloat(copy) * blockHeight - offset)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }

@@ -119,6 +119,11 @@ struct ExternalLensMetrics {
     /// Prompter font size that fits the band.
     let fontSize: CGFloat
 
+    /// Screen-corner inset for the elapsed timer, which sits outside the lens padding.
+    static let timerInset = CGSize(width: 40, height: 20)
+    /// Point size of the elapsed timer on the external display.
+    static let timerFontSize: CGFloat = 24
+
     init(screenSize: CGSize, paddingH: Double, paddingV: Double) {
         let clampedH = min(max(paddingH, 0), NotchSettings.maxExternalPadding)
         let clampedV = min(max(paddingV, 0), NotchSettings.maxExternalPadding)
@@ -217,15 +222,13 @@ struct ExternalDisplayView: View {
                 prompterView
             }
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             if NotchSettings.shared.showElapsedTime {
-                GeometryReader { geo in
-                    let lens = ExternalLensMetrics(screenSize: geo.size)
-                    ElapsedTimeView(fontSize: 24)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.top, max(20, lens.vPad))
-                        .padding(.trailing, max(40, lens.hPad))
-                }
+                // Deliberately outside the lens padding: the timer belongs in the corner of the
+                // screen, not in the band the talent is reading from.
+                ElapsedTimeView(fontSize: 24)
+                    .padding(.top, ExternalLensMetrics.timerInset.height)
+                    .padding(.leading, ExternalLensMetrics.timerInset.width)
             }
         }
         .scaleEffect(x: mirrorAxis?.scaleX ?? 1, y: mirrorAxis?.scaleY ?? 1)
