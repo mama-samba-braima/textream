@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var showAbout = false
     @State private var renamingFolderID: UUID?
     @State private var folderNameDraft: String = ""
+    @State private var pendingDeleteIndex: Int?
     @State private var languageSuggestion: SpeechLanguageSuggestion?
     @State private var ignoredLanguageIdentifier: String?
     @State private var languageDetectionTask: Task<Void, Never>?
@@ -726,6 +727,22 @@ Happy presenting! [wave]
         .safeAreaInset(edge: .bottom) {
             sidebarFooter
         }
+        .onDeleteCommand {
+            requestDeletePage(at: service.currentPageIndex)
+        }
+        .alert("Delete Page?", isPresented: deletingBinding) {
+            Button("Cancel", role: .cancel) { pendingDeleteIndex = nil }
+            Button("Delete", role: .destructive) {
+                if let index = pendingDeleteIndex {
+                    removePage(at: index)
+                }
+                pendingDeleteIndex = nil
+            }
+        } message: {
+            if let index = pendingDeleteIndex, index < service.pages.count {
+                Text("Page \(index + 1) has content that will be lost.\n\n\(pagePreview(service.pages[index]))")
+            }
+        }
         .alert("Rename Folder", isPresented: renamingBinding) {
             TextField("Folder name", text: $folderNameDraft)
             Button("Cancel", role: .cancel) { renamingFolderID = nil }
@@ -801,6 +818,10 @@ Happy presenting! [wave]
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
+        .help("Double-click to rename")
+        .onTapGesture(count: 2) {
+            startRenaming(folder)
+        }
         .dropDestination(for: String.self) { items, _ in
             movePages(items, to: folder.id)
         }
@@ -813,8 +834,7 @@ Happy presenting! [wave]
                 Label("Add Page to Folder", systemImage: "plus")
             }
             Button {
-                folderNameDraft = folder.name
-                renamingFolderID = folder.id
+                startRenaming(folder)
             } label: {
                 Label("Rename Folder…", systemImage: "pencil")
             }
@@ -897,11 +917,35 @@ Happy presenting! [wave]
         if service.pages.count > 1 {
             Divider()
             Button(role: .destructive) {
-                removePage(at: index)
+                requestDeletePage(at: index)
             } label: {
                 Label("Delete Page", systemImage: "trash")
             }
         }
+    }
+
+    private func startRenaming(_ folder: PageFolder) {
+        folderNameDraft = folder.name
+        renamingFolderID = folder.id
+    }
+
+    /// Deletes straight away when there is nothing to lose, and asks first when there is.
+    /// The Delete key is easy to hit by accident and page deletion cannot be undone.
+    private func requestDeletePage(at index: Int) {
+        guard service.pages.count > 1, service.pages.indices.contains(index) else { return }
+        let isEmpty = service.pages[index].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isEmpty {
+            removePage(at: index)
+        } else {
+            pendingDeleteIndex = index
+        }
+    }
+
+    private var deletingBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeleteIndex != nil },
+            set: { if !$0 { pendingDeleteIndex = nil } }
+        )
     }
 
     private var renamingBinding: Binding<Bool> {
