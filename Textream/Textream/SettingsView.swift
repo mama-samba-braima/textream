@@ -1016,6 +1016,7 @@ struct SettingsView: View {
     @State private var availableScreens: [NSScreen] = []
 
     private var externalTab: some View {
+        ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .leading, spacing: 14) {
             Text("Show the teleprompter on an external display or Sidecar iPad.")
                 .font(.system(size: 11))
@@ -1064,11 +1065,92 @@ struct SettingsView: View {
                     onRefresh: { refreshScreens() },
                     emptyMessage: "No external displays detected. Connect a display or enable Sidecar."
                 )
+
+                Divider()
+
+                // Lens Padding
+                Text("Lens Padding")
+                    .font(.system(size: 13, weight: .medium))
+
+                Text("Squeeze the script into a narrow band so it stays inside what the lens shows. Text is clipped to the band, so your eyes barely move on camera.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                let screenSize = externalScreenSize()
+
+                VStack(spacing: 10) {
+                    paddingSlider(
+                        title: "Left & Right",
+                        value: $settings.externalPaddingH,
+                        edgeLength: screenSize.width
+                    )
+
+                    paddingSlider(
+                        title: "Top & Bottom",
+                        value: $settings.externalPaddingV,
+                        edgeLength: screenSize.height
+                    )
+                }
+
+                ExternalLensPreview(
+                    screenSize: screenSize,
+                    paddingH: settings.externalPaddingH,
+                    paddingV: settings.externalPaddingV
+                )
+                .frame(maxWidth: .infinity)
+
+                HStack {
+                    Text("Preview of the target display. The dashed frame is the visible band.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+
+                    Spacer()
+
+                    Button("Reset Padding") {
+                        settings.externalPaddingH = NotchSettings.defaultExternalPaddingH
+                        settings.externalPaddingV = NotchSettings.defaultExternalPaddingV
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .font(.system(size: 11))
+                }
             }
             Spacer()
         }
         .padding(16)
+        }
         .onAppear { refreshScreens() }
+    }
+
+    /// One padding slider: percent of the screen edge, with the point value it works out to.
+    private func paddingSlider(
+        title: String,
+        value: Binding<Double>,
+        edgeLength: CGFloat
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int(value.wrappedValue))% · \(Int(edgeLength * CGFloat(value.wrappedValue) / 100))px")
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            Slider(
+                value: value,
+                in: 0...NotchSettings.maxExternalPadding,
+                step: 1
+            )
+        }
+    }
+
+    /// Size of the display the external prompter will use, falling back to the main screen.
+    private func externalScreenSize() -> CGSize {
+        let match = availableScreens.first { $0.displayID == settings.externalScreenID }
+        let screen = match ?? availableScreens.first ?? NSScreen.main
+        return screen?.frame.size ?? CGSize(width: 1920, height: 1080)
     }
 
     // MARK: - Remote Tab
@@ -1416,6 +1498,8 @@ struct SettingsView: View {
         settings.externalDisplayMode = .off
         settings.externalScreenID = 0
         settings.mirrorAxis = .horizontal
+        settings.externalPaddingH = NotchSettings.defaultExternalPaddingH
+        settings.externalPaddingV = NotchSettings.defaultExternalPaddingV
         settings.listeningMode = .wordTracking
         settings.scrollSpeed = 3
         settings.showElapsedTime = true
@@ -1442,6 +1526,103 @@ struct SettingsView: View {
         }
         if settings.fullscreenScreenID == 0, let main = NSScreen.main {
             settings.fullscreenScreenID = main.displayID
+        }
+    }
+}
+
+// MARK: - External Lens Preview
+
+/// Miniature of the external display showing how the lens padding frames the script.
+///
+/// Text scrolls and is clipped to the padded band exactly as it is on the real display, so the
+/// framing can be dialled in without a second screen attached.
+struct ExternalLensPreview: View {
+    let screenSize: CGSize
+    let paddingH: Double
+    let paddingV: Double
+
+    /// Height reserved under the text for the waveform row (spacer + controls), in screen points.
+    private static let controlsBlock: CGFloat = 60
+
+    private static let sampleWords = "Keep your eyes on the lens and let the words come to you the audience never sees you reading only that you are talking to them one steady line at a time"
+        .split(separator: " ")
+        .map(String.init)
+
+    @State private var wordProgress: Double = 0
+    private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+
+    private var settings: NotchSettings { .shared }
+
+    var body: some View {
+        let aspect = screenSize.height > 0 ? screenSize.width / screenSize.height : 16.0 / 9.0
+
+        GeometryReader { geo in
+            let scale = screenSize.width > 0 ? geo.size.width / screenSize.width : 1
+            let lens = ExternalLensMetrics(
+                screenSize: screenSize,
+                paddingH: paddingH,
+                paddingV: paddingV
+            )
+            let hPad = lens.hPad * scale
+            let topPad = lens.vPad * scale
+            let bottomPad = max(lens.vPad, 24) * scale
+            let controls = Self.controlsBlock * scale
+
+            ZStack {
+                Color.black
+
+                VStack(spacing: 0) {
+                    SpeechScrollView(
+                        words: Self.sampleWords,
+                        highlightedCharCount: Self.sampleWords.count * 5,
+                        font: .systemFont(ofSize: max(5, lens.fontSize * scale), weight: .semibold),
+                        highlightColor: settings.fontColorPreset.color,
+                        cueColor: settings.cueColorPreset.color,
+                        cueUnreadOpacity: settings.cueBrightness.unreadOpacity,
+                        cueReadOpacity: settings.cueBrightness.readOpacity,
+                        smoothScroll: true,
+                        smoothWordProgress: wordProgress,
+                        isListening: true
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+
+                    Spacer().frame(height: 20 * scale)
+
+                    Capsule()
+                        .fill(.white.opacity(0.25))
+                        .frame(width: 240 * scale, height: max(2, 8 * scale))
+                        .frame(height: 40 * scale, alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, hPad)
+                .padding(.top, topPad)
+                .padding(.bottom, bottomPad)
+
+                // The band the text is actually confined to
+                Rectangle()
+                    .strokeBorder(
+                        Color.accentColor.opacity(0.8),
+                        style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    )
+                    .padding(.horizontal, hPad)
+                    .padding(.top, topPad)
+                    .padding(.bottom, bottomPad + controls)
+            }
+        }
+        .aspectRatio(aspect, contentMode: .fit)
+        .frame(maxHeight: 190)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+        )
+        .onReceive(scrollTimer) { _ in
+            let total = Double(Self.sampleWords.count)
+            wordProgress += 1.2 * 0.05
+            if wordProgress >= total {
+                wordProgress = 0
+            }
         }
     }
 }

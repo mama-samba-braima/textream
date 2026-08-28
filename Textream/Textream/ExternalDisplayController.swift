@@ -102,6 +102,41 @@ extension NSScreen {
     }
 }
 
+// MARK: - Lens Metrics
+
+/// Geometry of the external prompter "lens": the padded band the scrolling text is confined to.
+///
+/// Padding is stored as a percentage of the screen edge it insets, so the same setting frames the
+/// text identically on any display. Text is clipped to this band, which keeps eye movement inside
+/// the small window a beam-splitter lens actually shows on camera.
+struct ExternalLensMetrics {
+    /// Padding on each side, in points.
+    let hPad: CGFloat
+    /// Padding on the top and bottom, in points.
+    let vPad: CGFloat
+    /// Width of the visible text band, in points.
+    let lensWidth: CGFloat
+    /// Prompter font size that fits the band.
+    let fontSize: CGFloat
+
+    init(screenSize: CGSize, paddingH: Double, paddingV: Double) {
+        let clampedH = min(max(paddingH, 0), NotchSettings.maxExternalPadding)
+        let clampedV = min(max(paddingV, 0), NotchSettings.maxExternalPadding)
+        hPad = screenSize.width * CGFloat(clampedH) / 100
+        vPad = screenSize.height * CGFloat(clampedV) / 100
+        lensWidth = max(1, screenSize.width - hPad * 2)
+        fontSize = max(24, min(96, lensWidth / 14))
+    }
+
+    init(screenSize: CGSize, settings: NotchSettings = .shared) {
+        self.init(
+            screenSize: screenSize,
+            paddingH: settings.externalPaddingH,
+            paddingV: settings.externalPaddingV
+        )
+    }
+}
+
 // MARK: - External Display SwiftUI View
 
 struct ExternalDisplayView: View {
@@ -184,9 +219,13 @@ struct ExternalDisplayView: View {
         }
         .overlay(alignment: .topTrailing) {
             if NotchSettings.shared.showElapsedTime {
-                ElapsedTimeView(fontSize: 24)
-                    .padding(.top, 20)
-                    .padding(.trailing, 40)
+                GeometryReader { geo in
+                    let lens = ExternalLensMetrics(screenSize: geo.size)
+                    ElapsedTimeView(fontSize: 24)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.top, max(20, lens.vPad))
+                        .padding(.trailing, max(40, lens.hPad))
+                }
             }
         }
         .scaleEffect(x: mirrorAxis?.scaleX ?? 1, y: mirrorAxis?.scaleY ?? 1)
@@ -214,16 +253,13 @@ struct ExternalDisplayView: View {
 
     private var prompterView: some View {
         GeometryReader { geo in
-            let fontSize = max(48, min(96, geo.size.width / 14))
-            let hPad = max(40, geo.size.width * 0.08)
+            let lens = ExternalLensMetrics(screenSize: geo.size)
 
             VStack(spacing: 0) {
-                Spacer().frame(height: 20)
-
                 SpeechScrollView(
                     words: words,
                     highlightedCharCount: effectiveCharCount,
-                    font: .systemFont(ofSize: fontSize, weight: .semibold),
+                    font: .systemFont(ofSize: lens.fontSize, weight: .semibold),
                     highlightColor: NotchSettings.shared.fontColorPreset.color,
                     cueColor: NotchSettings.shared.cueColorPreset.color,
                     cueUnreadOpacity: NotchSettings.shared.cueBrightness.unreadOpacity,
@@ -245,7 +281,7 @@ struct ExternalDisplayView: View {
                     smoothWordProgress: timerWordProgress,
                     isListening: isEffectivelyListening
                 )
-                .padding(.horizontal, hPad)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 Spacer().frame(height: 20)
 
@@ -287,9 +323,10 @@ struct ExternalDisplayView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, hPad)
-                .padding(.bottom, 40)
             }
+            .padding(.horizontal, lens.hPad)
+            .padding(.top, lens.vPad)
+            .padding(.bottom, max(lens.vPad, 24))
         }
     }
 

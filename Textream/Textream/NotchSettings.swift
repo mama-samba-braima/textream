@@ -394,6 +394,17 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(mirrorAxis.rawValue, forKey: "mirrorAxis") }
     }
 
+    /// Horizontal padding on each side of the external prompter, as a percentage of screen width.
+    /// Keeps the scrolling text inside a narrow "lens" band so the eyes barely move on camera.
+    var externalPaddingH: Double {
+        didSet { UserDefaults.standard.set(externalPaddingH, forKey: "externalPaddingH") }
+    }
+
+    /// Vertical padding on the top and bottom of the external prompter, as a percentage of screen height.
+    var externalPaddingV: Double {
+        didSet { UserDefaults.standard.set(externalPaddingV, forKey: "externalPaddingV") }
+    }
+
     var listeningMode: ListeningMode {
         didSet { UserDefaults.standard.set(listeningMode.rawValue, forKey: "listeningMode") }
     }
@@ -463,6 +474,11 @@ class NotchSettings {
     static let minHeight: CGFloat = 100
     static let maxHeight: CGFloat = 400
 
+    /// External prompter padding, in percent of the screen edge it insets.
+    static let defaultExternalPaddingH: Double = 8
+    static let defaultExternalPaddingV: Double = 4
+    static let maxExternalPadding: Double = 40
+
     init() {
         let savedWidth = UserDefaults.standard.double(forKey: "notchWidth")
         let savedHeight = UserDefaults.standard.double(forKey: "textAreaHeight")
@@ -491,6 +507,8 @@ class NotchSettings {
         let savedScreenID = UserDefaults.standard.integer(forKey: "externalScreenID")
         self.externalScreenID = UInt32(savedScreenID)
         self.mirrorAxis = MirrorAxis(rawValue: UserDefaults.standard.string(forKey: "mirrorAxis") ?? "") ?? .horizontal
+        self.externalPaddingH = UserDefaults.standard.object(forKey: "externalPaddingH") as? Double ?? Self.defaultExternalPaddingH
+        self.externalPaddingV = UserDefaults.standard.object(forKey: "externalPaddingV") as? Double ?? Self.defaultExternalPaddingV
         self.listeningMode = ListeningMode(rawValue: UserDefaults.standard.string(forKey: "listeningMode") ?? "") ?? .wordTracking
         let savedSpeed = UserDefaults.standard.double(forKey: "scrollSpeed")
         self.scrollSpeed = savedSpeed > 0 ? savedSpeed : 3

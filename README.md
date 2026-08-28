@@ -110,6 +110,7 @@ Then right-click the app → **Open**. After the first launch, macOS remembers y
 
 - **Mirror axis** — Horizontal (standard for mirrors), Vertical, or Both (180° rotation).
 - **Target display** — Pick from connected external displays and Sidecar iPads.
+- **Lens padding** — Inset the prompter left/right and top/bottom (as a percentage of the display) so the script scrolls inside a narrow band. Text is clipped to that band, keeping eye movement small on camera. A live preview shows the framing.
 - **Hide from screen share** — Hides the overlay from screen recordings and video calls.
 
 ### Remote Connection
