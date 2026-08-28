@@ -16,6 +16,26 @@ struct PageFolder: Identifiable, Codable, Equatable {
     var name: String
     var pageIDs: [UUID] = []
     var isExpanded: Bool = true
+    /// Pinned folders float above unpinned ones.
+    var isPinned: Bool = false
+
+    init(id: UUID = UUID(), name: String, pageIDs: [UUID] = [], isExpanded: Bool = true, isPinned: Bool = false) {
+        self.id = id
+        self.name = name
+        self.pageIDs = pageIDs
+        self.isExpanded = isExpanded
+        self.isPinned = isPinned
+    }
+
+    // Decoded field by field so documents written before a field existed still load.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        pageIDs = try container.decodeIfPresent([UUID].self, forKey: .pageIDs) ?? []
+        isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+    }
 }
 
 /// On-disk shape of a `.textream` file that uses folders.
@@ -27,6 +47,23 @@ private struct TextreamDocument: Codable {
     var pages: [String]
     var pageIDs: [UUID]
     var folders: [PageFolder]
+    var pinnedPageIDs: [UUID] = []
+
+    init(pages: [String], pageIDs: [UUID], folders: [PageFolder], pinnedPageIDs: [UUID]) {
+        self.pages = pages
+        self.pageIDs = pageIDs
+        self.folders = folders
+        self.pinnedPageIDs = pinnedPageIDs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 2
+        pages = try container.decode([String].self, forKey: .pages)
+        pageIDs = try container.decode([UUID].self, forKey: .pageIDs)
+        folders = try container.decodeIfPresent([PageFolder].self, forKey: .folders) ?? []
+        pinnedPageIDs = try container.decodeIfPresent([UUID].self, forKey: .pinnedPageIDs) ?? []
+    }
 }
 
 class TextreamService: NSObject, ObservableObject {
@@ -48,6 +85,8 @@ class TextreamService: NSObject, ObservableObject {
     /// Expansion of the ungrouped "Pages" section. Owned here, not left to SwiftUI, so that adding
     /// a page can open the section it lands in.
     @Published var ungroupedIsExpanded: Bool = true
+    /// Pages pinned to the top of the section they live in.
+    @Published var pinnedPageIDs: Set<UUID> = []
     @Published var currentPageIndex: Int = 0
     @Published var readPages: Set<Int> = []
 
@@ -200,29 +239,69 @@ class TextreamService: NSObject, ObservableObject {
 
     // MARK: - Page Organization
 
+    /// Ordered page IDs in `folderID`, or the ungrouped pages when it is nil.
+    func pageIDs(inFolder folderID: UUID?) -> [UUID] {
+        if let folderID {
+            return folders.first { $0.id == folderID }?.pageIDs ?? []
+        }
+        let grouped = Set(folders.flatMap { $0.pageIDs })
+        return pageIDs.filter { !grouped.contains($0) }
+    }
+
     /// Flat page indices belonging to `folderID`, or the ungrouped pages when it is nil.
     func pageIndexes(inFolder folderID: UUID?) -> [Int] {
-        let grouped = Set(folders.flatMap { $0.pageIDs })
-        return pageIDs.indices.filter { index in
-            let id = pageIDs[index]
-            if let folderID {
-                return folders.first { $0.id == folderID }?.pageIDs.contains(id) ?? false
-            }
-            return !grouped.contains(id)
-        }
+        pageIDs(inFolder: folderID).compactMap { index(of: $0) }
+    }
+
+    func index(of pageID: UUID) -> Int? {
+        pageIDs.firstIndex(of: pageID)
     }
 
     func folderID(forPageAt index: Int) -> UUID? {
-        guard pageIDs.indices.contains(index) else { return nil }
-        let id = pageIDs[index]
-        return folders.first { $0.pageIDs.contains(id) }?.id
+        guard let id = pageID(at: index) else { return nil }
+        return folder(containing: id)
+    }
+
+    func folder(containing pageID: UUID) -> UUID? {
+        folders.first { $0.pageIDs.contains(pageID) }?.id
     }
 
     func pageID(at index: Int) -> UUID? {
         pageIDs.indices.contains(index) ? pageIDs[index] : nil
     }
 
-    /// Repairs the ID list if pages were mutated directly, and drops stale folder references.
+    func text(for pageID: UUID) -> String {
+        guard let index = index(of: pageID), pages.indices.contains(index) else { return "" }
+        return pages[index]
+    }
+
+    // MARK: Pinning
+
+    func isPinned(_ pageID: UUID) -> Bool {
+        pinnedPageIDs.contains(pageID)
+    }
+
+    /// Pinned items float to the top of the section they live in, keeping folder membership intact.
+    func togglePin(pageID: UUID) {
+        let kept = self.pageID(at: currentPageIndex)
+        if pinnedPageIDs.contains(pageID) {
+            pinnedPageIDs.remove(pageID)
+        } else {
+            pinnedPageIDs.insert(pageID)
+        }
+        rebuildOrder(keeping: kept)
+    }
+
+    func togglePin(folderID: UUID) {
+        guard let index = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        let kept = pageID(at: currentPageIndex)
+        folders[index].isPinned.toggle()
+        rebuildOrder(keeping: kept)
+    }
+
+    // MARK: Mutation
+
+    /// Repairs the ID list if pages were mutated directly, and drops stale references.
     func ensurePageIDs() {
         if pageIDs.count < pages.count {
             pageIDs.append(contentsOf: (0..<(pages.count - pageIDs.count)).map { _ in UUID() })
@@ -233,6 +312,7 @@ class TextreamService: NSObject, ObservableObject {
         for index in folders.indices {
             folders[index].pageIDs.removeAll { !known.contains($0) }
         }
+        pinnedPageIDs = pinnedPageIDs.intersection(known)
     }
 
     /// Adds a page to whichever folder the current page lives in, so a new page appears where you
@@ -242,7 +322,7 @@ class TextreamService: NSObject, ObservableObject {
         addPage(to: folderID(forPageAt: currentPageIndex))
     }
 
-    /// Adds a page, expanding the target folder so the new page is never added out of sight.
+    /// Adds a page, expanding the target section so the new page is never added out of sight.
     @discardableResult
     func addPage(to folderID: UUID? = nil) -> Int {
         ensurePageIDs()
@@ -269,42 +349,93 @@ class TextreamService: NSObject, ObservableObject {
     }
 
     func removePage(at index: Int) {
-        guard pages.count > 1, pages.indices.contains(index) else { return }
-        ensurePageIDs()
-        let removedID = pageIDs[index]
-        let survivingID: UUID? = currentPageIndex == index ? nil : pageID(at: currentPageIndex)
-
-        pages.remove(at: index)
-        pageIDs.remove(at: index)
-        for folderIndex in folders.indices {
-            folders[folderIndex].pageIDs.removeAll { $0 == removedID }
-        }
-        readPages = Set(readPages.compactMap { page in
-            if page == index { return nil }
-            return page > index ? page - 1 : page
-        })
-        if currentPageIndex >= pages.count {
-            currentPageIndex = pages.count - 1
-        } else if currentPageIndex > index {
-            currentPageIndex -= 1
-        }
-        rebuildOrder(keeping: survivingID)
+        guard let id = pageID(at: index) else { return }
+        removePages(ids: [id])
     }
 
-    /// Moves a page into a folder, or out to the ungrouped section when `folderID` is nil.
-    /// The page being edited stays selected, even when the move reorders the document around it.
-    func movePage(id: UUID, to folderID: UUID?) {
+    /// Deletes pages, always leaving at least one behind.
+    func removePages(ids: [UUID]) {
         ensurePageIDs()
-        let keptID = pageID(at: currentPageIndex)
+        let doomed = Set(ids).intersection(pageIDs)
+        guard !doomed.isEmpty, doomed.count < pages.count else { return }
+
+        let survivorID = pageID(at: currentPageIndex).flatMap { doomed.contains($0) ? nil : $0 }
+        let readIDs = Set(readPages.compactMap { pageID(at: $0) }).subtracting(doomed)
+
+        var keptTexts: [String] = []
+        var keptIDs: [UUID] = []
+        for (index, id) in pageIDs.enumerated() where !doomed.contains(id) {
+            keptIDs.append(id)
+            keptTexts.append(pages.indices.contains(index) ? pages[index] : "")
+        }
+        pages = keptTexts
+        pageIDs = keptIDs
         for index in folders.indices {
-            folders[index].pageIDs.removeAll { $0 == id }
+            folders[index].pageIDs.removeAll { doomed.contains($0) }
+        }
+        pinnedPageIDs.subtract(doomed)
+        readPages = Set(keptIDs.indices.filter { readIDs.contains(keptIDs[$0]) })
+        currentPageIndex = max(0, min(currentPageIndex, pages.count - 1))
+        rebuildOrder(keeping: survivorID)
+    }
+
+    /// Moves pages into a folder, or out to the ungrouped section when `folderID` is nil.
+    /// The page being edited stays selected, even when the move reorders the document around it.
+    func movePages(ids: [UUID], to folderID: UUID?) {
+        ensurePageIDs()
+        let moving = ids.filter { pageIDs.contains($0) }
+        guard !moving.isEmpty else { return }
+        let kept = pageID(at: currentPageIndex)
+
+        for index in folders.indices {
+            folders[index].pageIDs.removeAll { moving.contains($0) }
         }
         expand(folderID)
         if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
-            folders[index].pageIDs.append(id)
+            folders[index].pageIDs.append(contentsOf: moving)
         }
-        rebuildOrder(keeping: keptID ?? id)
+        rebuildOrder(keeping: kept ?? moving.first)
     }
+
+    func movePage(id: UUID, to folderID: UUID?) {
+        movePages(ids: [id], to: folderID)
+    }
+
+    /// Drops pages immediately before `targetID`, joining the target's section on the way.
+    /// This is both reordering within a section and moving between sections.
+    func movePages(ids: [UUID], before targetID: UUID) {
+        ensurePageIDs()
+        let moving = ids.filter { pageIDs.contains($0) && $0 != targetID }
+        guard !moving.isEmpty, pageIDs.contains(targetID) else { return }
+        let kept = pageID(at: currentPageIndex)
+        let destination = folder(containing: targetID)
+
+        for index in folders.indices {
+            folders[index].pageIDs.removeAll { moving.contains($0) }
+        }
+        expand(destination)
+
+        if let destination, let index = folders.firstIndex(where: { $0.id == destination }) {
+            let position = folders[index].pageIDs.firstIndex(of: targetID) ?? folders[index].pageIDs.count
+            folders[index].pageIDs.insert(contentsOf: moving, at: position)
+        } else {
+            // Ungrouped pages take their order from the flat list, so reorder that directly.
+            var flat = pageIDs
+            flat.removeAll { moving.contains($0) }
+            let position = flat.firstIndex(of: targetID) ?? flat.count
+            flat.insert(contentsOf: moving, at: position)
+            reorderFlat(to: flat)
+        }
+        // A page dropped before a pinned page cannot outrank it, so match the target's pin state.
+        if isPinned(targetID) {
+            pinnedPageIDs.formUnion(moving)
+        } else {
+            pinnedPageIDs.subtract(moving)
+        }
+        rebuildOrder(keeping: kept)
+    }
+
+    // MARK: Folders
 
     @discardableResult
     func addFolder(named name: String) -> PageFolder {
@@ -342,18 +473,37 @@ class TextreamService: NSObject, ObservableObject {
     }
 
     /// Replaces the whole document. Used by open and import.
-    func replacePages(_ newPages: [String], ids: [UUID]? = nil, folders newFolders: [PageFolder] = []) {
+    func replacePages(
+        _ newPages: [String],
+        ids: [UUID]? = nil,
+        folders newFolders: [PageFolder] = [],
+        pinned: Set<UUID> = []
+    ) {
         let texts = newPages.isEmpty ? [""] : newPages
         pages = texts
         pageIDs = ids?.count == texts.count ? (ids ?? []) : texts.map { _ in UUID() }
         folders = newFolders
+        pinnedPageIDs = pinned
         currentPageIndex = 0
         readPages.removeAll()
+        ungroupedIsExpanded = true
         rebuildOrder(keeping: pageIDs.first)
     }
 
-    /// Reorders pages so folder contents are contiguous and in folder order, ungrouped pages last.
-    /// The sidebar shows this same order, so what you read is what you see.
+    /// Applies an explicit flat order to `pages` and `pageIDs`.
+    private func reorderFlat(to order: [UUID]) {
+        guard order.count == pageIDs.count else { return }
+        var textByID: [UUID: String] = [:]
+        for (index, id) in pageIDs.enumerated() where pages.indices.contains(index) {
+            textByID[id] = pages[index]
+        }
+        pageIDs = order
+        pages = order.map { textByID[$0] ?? "" }
+    }
+
+    /// Reorders pages so folder contents are contiguous and in folder order, ungrouped pages last,
+    /// with pinned items floating to the top of whichever section they live in. The sidebar shows
+    /// this same order, so what you read is what you see.
     private func rebuildOrder(keeping selectedID: UUID?) {
         ensurePageIDs()
         var textByID: [UUID: String] = [:]
@@ -362,9 +512,15 @@ class TextreamService: NSObject, ObservableObject {
         }
         let readIDs = Set(readPages.compactMap { pageID(at: $0) })
 
+        // Pinned first, order otherwise untouched. A stable partition, which sorted(by:) is not.
+        folders = folders.filter { $0.isPinned } + folders.filter { !$0.isPinned }
+        for index in folders.indices {
+            folders[index].pageIDs = pinnedFirst(folders[index].pageIDs)
+        }
+
         let grouped = folders.flatMap { $0.pageIDs }
         let groupedSet = Set(grouped)
-        let loose = pageIDs.filter { !groupedSet.contains($0) }
+        let loose = pinnedFirst(pageIDs.filter { !groupedSet.contains($0) })
         let ordered = grouped + loose
         guard ordered.count == pageIDs.count else { return }
 
@@ -377,6 +533,10 @@ class TextreamService: NSObject, ObservableObject {
         } else {
             currentPageIndex = max(0, min(currentPageIndex, pages.count - 1))
         }
+    }
+
+    private func pinnedFirst(_ ids: [UUID]) -> [UUID] {
+        ids.filter { pinnedPageIDs.contains($0) } + ids.filter { !pinnedPageIDs.contains($0) }
     }
 
     // MARK: - File Operations
@@ -405,10 +565,15 @@ class TextreamService: NSObject, ObservableObject {
         do {
             ensurePageIDs()
             let data: Data
-            if folders.isEmpty {
+            if folders.isEmpty && pinnedPageIDs.isEmpty {
                 data = try JSONEncoder().encode(pages)
             } else {
-                let document = TextreamDocument(pages: pages, pageIDs: pageIDs, folders: folders)
+                let document = TextreamDocument(
+                    pages: pages,
+                    pageIDs: pageIDs,
+                    folders: folders,
+                    pinnedPageIDs: Array(pinnedPageIDs)
+                )
                 data = try JSONEncoder().encode(document)
             }
             try data.write(to: url, options: .atomic)
@@ -514,7 +679,12 @@ class TextreamService: NSObject, ObservableObject {
                 let document = try decoder.decode(TextreamDocument.self, from: data)
                 loadedPages = document.pages
                 guard !loadedPages.isEmpty else { return }
-                replacePages(document.pages, ids: document.pageIDs, folders: document.folders)
+                replacePages(
+                    document.pages,
+                    ids: document.pageIDs,
+                    folders: document.folders,
+                    pinned: Set(document.pinnedPageIDs)
+                )
             }
             savedPages = pages
             currentFileURL = url

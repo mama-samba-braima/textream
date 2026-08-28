@@ -23,7 +23,8 @@ struct ContentView: View {
     @State private var showAbout = false
     @State private var renamingFolderID: UUID?
     @State private var folderNameDraft: String = ""
-    @State private var pendingDeleteIndex: Int?
+    @State private var selectedPageIDs: Set<UUID> = []
+    @State private var pendingDeleteIDs: [UUID] = []
     @State private var languageSuggestion: SpeechLanguageSuggestion?
     @State private var ignoredLanguageIdentifier: String?
     @State private var languageDetectionTask: Task<Void, Never>?
@@ -662,35 +663,48 @@ Happy presenting! [wave]
         return preview.count > 30 ? String(preview.prefix(30)) + "…" : preview
     }
 
-    private var sidebarSelection: Binding<Int?> {
-        Binding<Int?>(
-            get: { service.currentPageIndex },
+    /// Multi-select for delete and drag. The editor follows only when exactly one page is
+    /// selected, so selecting a range never yanks the editor around.
+    private var sidebarSelection: Binding<Set<UUID>> {
+        Binding<Set<UUID>>(
+            get: { selectedPageIDs },
             set: { newValue in
-                if let index = newValue {
-                    if isRecording {
-                        stopRecording()
-                    }
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        service.currentPageIndex = index
-                    }
+                selectedPageIDs = newValue
+                guard newValue.count == 1,
+                      let id = newValue.first,
+                      let index = service.index(of: id),
+                      index != service.currentPageIndex else { return }
+                if isRecording {
+                    stopRecording()
+                }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    service.currentPageIndex = index
                 }
             }
         )
+    }
+
+    /// The pages an action applies to: the whole selection when the row is part of it,
+    /// otherwise just the row that was clicked.
+    private func actionTargets(for id: UUID) -> [UUID] {
+        selectedPageIDs.contains(id) && selectedPageIDs.count > 1
+            ? service.pageIDs.filter { selectedPageIDs.contains($0) }
+            : [id]
     }
 
     private var pageSidebar: some View {
         List(selection: sidebarSelection) {
             ForEach(service.folders) { folder in
                 Section(isExpanded: expansionBinding(for: folder)) {
-                    let indexes = service.pageIndexes(inFolder: folder.id)
-                    if indexes.isEmpty {
+                    let ids = service.pageIDs(inFolder: folder.id)
+                    if ids.isEmpty {
                         Text("Drag pages here")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 2)
                     } else {
-                        ForEach(indexes, id: \.self) { index in
-                            pageRow(at: index)
+                        ForEach(ids, id: \.self) { id in
+                            pageRow(id: id)
                         }
                     }
                 } header: {
@@ -702,24 +716,17 @@ Happy presenting! [wave]
             // control to reopen the section with.
             if service.folders.isEmpty {
                 Section {
-                    ForEach(service.pageIndexes(inFolder: nil), id: \.self) { index in
-                        pageRow(at: index)
+                    ForEach(service.pageIDs(inFolder: nil), id: \.self) { id in
+                        pageRow(id: id)
                     }
                 }
             } else {
                 Section(isExpanded: $service.ungroupedIsExpanded) {
-                    ForEach(service.pageIndexes(inFolder: nil), id: \.self) { index in
-                        pageRow(at: index)
+                    ForEach(service.pageIDs(inFolder: nil), id: \.self) { id in
+                        pageRow(id: id)
                     }
                 } header: {
-                    Text("Pages")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .dropDestination(for: String.self) { items, _ in
-                            movePages(items, to: nil)
-                        }
+                    ungroupedHeader
                 }
             }
         }
@@ -728,20 +735,25 @@ Happy presenting! [wave]
             sidebarFooter
         }
         .onDeleteCommand {
-            requestDeletePage(at: service.currentPageIndex)
+            requestDelete(selectedPageIDs.isEmpty
+                ? Array(service.pageID(at: service.currentPageIndex).map { [$0] } ?? [])
+                : service.pageIDs.filter { selectedPageIDs.contains($0) })
         }
-        .alert("Delete Page?", isPresented: deletingBinding) {
-            Button("Cancel", role: .cancel) { pendingDeleteIndex = nil }
+        .onChange(of: service.currentPageIndex) { _, index in
+            // Keep the sidebar in step when the page changes from elsewhere, but never
+            // collapse a selection the user is building.
+            guard selectedPageIDs.count <= 1, let id = service.pageID(at: index) else { return }
+            selectedPageIDs = [id]
+        }
+        .alert(deleteAlertTitle, isPresented: deletingBinding) {
+            Button("Cancel", role: .cancel) { pendingDeleteIDs = [] }
             Button("Delete", role: .destructive) {
-                if let index = pendingDeleteIndex {
-                    removePage(at: index)
-                }
-                pendingDeleteIndex = nil
+                let ids = pendingDeleteIDs
+                pendingDeleteIDs = []
+                deletePages(ids)
             }
         } message: {
-            if let index = pendingDeleteIndex, index < service.pages.count {
-                Text("Page \(index + 1) has content that will be lost.\n\n\(pagePreview(service.pages[index]))")
-            }
+            Text(deleteAlertMessage)
         }
         .alert("Rename Folder", isPresented: renamingBinding) {
             TextField("Folder name", text: $folderNameDraft)
@@ -753,6 +765,17 @@ Happy presenting! [wave]
                 renamingFolderID = nil
             }
         }
+    }
+
+    private var ungroupedHeader: some View {
+        Text("Pages")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .dropDestination(for: String.self) { items, _ in
+                movePages(items, to: nil)
+            }
     }
 
     private var sidebarFooter: some View {
@@ -806,9 +829,9 @@ Happy presenting! [wave]
 
     private func folderHeader(_ folder: PageFolder) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder")
+            Image(systemName: folder.isPinned ? "pin.fill" : "folder")
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(folder.isPinned ? Color.accentColor : .secondary)
             Text(folder.name)
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
@@ -838,6 +861,14 @@ Happy presenting! [wave]
             } label: {
                 Label("Rename Folder…", systemImage: "pencil")
             }
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    service.togglePin(folderID: folder.id)
+                }
+            } label: {
+                Label(folder.isPinned ? "Unpin Folder" : "Pin Folder",
+                      systemImage: folder.isPinned ? "pin.slash" : "pin")
+            }
             Divider()
             Button {
                 service.moveFolder(id: folder.id, by: -1)
@@ -860,13 +891,21 @@ Happy presenting! [wave]
         }
     }
 
-    private func pageRow(at index: Int) -> some View {
-        let page = index < service.pages.count ? service.pages[index] : ""
+    private func pageRow(id: UUID) -> some View {
+        let index = service.index(of: id) ?? 0
+        let isPinned = service.isPinned(id)
         return Label {
-            Text(pagePreview(page))
-                .font(.system(size: 12))
-                .lineLimit(1)
-                .truncationMode(.tail)
+            HStack(spacing: 4) {
+                Text(pagePreview(service.text(for: id)))
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
         } icon: {
             Text("\(index + 1)")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -875,24 +914,35 @@ Happy presenting! [wave]
                 .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         }
-        .tag(index)
-        .draggable(service.pageID(at: index)?.uuidString ?? "")
+        .tag(id)
+        .draggable(dragPayload(for: id))
+        .dropDestination(for: String.self) { items, _ in
+            movePages(items, before: id)
+        }
         .contextMenu {
-            pageMenu(for: index)
+            pageMenu(for: id)
         }
     }
 
+    /// Dragging a row inside a multi-selection carries the whole selection.
+    private func dragPayload(for id: UUID) -> String {
+        actionTargets(for: id).map(\.uuidString).joined(separator: " ")
+    }
+
     @ViewBuilder
-    private func pageMenu(for index: Int) -> some View {
-        let currentFolder = service.folderID(forPageAt: index)
+    private func pageMenu(for id: UUID) -> some View {
+        let targets = actionTargets(for: id)
+        let many = targets.count > 1
+        let currentFolder = service.folder(containing: id)
+        let allPinned = targets.allSatisfy { service.isPinned($0) }
 
         if !service.folders.isEmpty {
             Menu {
                 ForEach(service.folders) { folder in
                     Button {
-                        movePage(at: index, to: folder.id)
+                        moveSelection(targets, to: folder.id)
                     } label: {
-                        if folder.id == currentFolder {
+                        if !many && folder.id == currentFolder {
                             Label(folder.name, systemImage: "checkmark")
                         } else {
                             Text(folder.name)
@@ -901,25 +951,39 @@ Happy presenting! [wave]
                 }
                 Divider()
                 Button("No Folder") {
-                    movePage(at: index, to: nil)
+                    moveSelection(targets, to: nil)
                 }
             } label: {
-                Label("Move to Folder", systemImage: "folder")
+                Label(many ? "Move \(targets.count) Pages to Folder" : "Move to Folder", systemImage: "folder")
             }
         }
 
         Button {
-            newFolder(withPageAt: index)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                for target in targets {
+                    if allPinned == service.isPinned(target) {
+                        service.togglePin(pageID: target)
+                    }
+                }
+            }
         } label: {
-            Label("New Folder with Page", systemImage: "folder.badge.plus")
+            Label(allPinned ? (many ? "Unpin Pages" : "Unpin Page") : (many ? "Pin Pages" : "Pin Page"),
+                  systemImage: allPinned ? "pin.slash" : "pin")
         }
 
-        if service.pages.count > 1 {
+        Button {
+            newFolder(with: targets)
+        } label: {
+            Label(many ? "New Folder with \(targets.count) Pages" : "New Folder with Page",
+                  systemImage: "folder.badge.plus")
+        }
+
+        if targets.count < service.pages.count {
             Divider()
             Button(role: .destructive) {
-                requestDeletePage(at: index)
+                requestDelete(targets)
             } label: {
-                Label("Delete Page", systemImage: "trash")
+                Label(many ? "Delete \(targets.count) Pages" : "Delete Page", systemImage: "trash")
             }
         }
     }
@@ -931,20 +995,46 @@ Happy presenting! [wave]
 
     /// Deletes straight away when there is nothing to lose, and asks first when there is.
     /// The Delete key is easy to hit by accident and page deletion cannot be undone.
-    private func requestDeletePage(at index: Int) {
-        guard service.pages.count > 1, service.pages.indices.contains(index) else { return }
-        let isEmpty = service.pages[index].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if isEmpty {
-            removePage(at: index)
-        } else {
-            pendingDeleteIndex = index
+    private func requestDelete(_ ids: [UUID]) {
+        let deletable = ids.filter { service.index(of: $0) != nil }
+        guard !deletable.isEmpty, deletable.count < service.pages.count else { return }
+        let hasContent = deletable.contains {
+            !service.text(for: $0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        if hasContent {
+            pendingDeleteIDs = deletable
+        } else {
+            deletePages(deletable)
+        }
+    }
+
+    private func deletePages(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        if isRecording {
+            stopRecording()
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            service.removePages(ids: ids)
+        }
+        selectedPageIDs = service.pageID(at: service.currentPageIndex).map { [$0] } ?? []
+    }
+
+    private var deleteAlertTitle: String {
+        pendingDeleteIDs.count > 1 ? "Delete \(pendingDeleteIDs.count) Pages?" : "Delete Page?"
+    }
+
+    private var deleteAlertMessage: String {
+        if pendingDeleteIDs.count > 1 {
+            return "These pages have content that will be lost."
+        }
+        guard let id = pendingDeleteIDs.first, let index = service.index(of: id) else { return "" }
+        return "Page \(index + 1) has content that will be lost.\n\n\(pagePreview(service.text(for: id)))"
     }
 
     private var deletingBinding: Binding<Bool> {
         Binding(
-            get: { pendingDeleteIndex != nil },
-            set: { if !$0 { pendingDeleteIndex = nil } }
+            get: { !pendingDeleteIDs.isEmpty },
+            set: { if !$0 { pendingDeleteIDs = [] } }
         )
     }
 
@@ -969,34 +1059,49 @@ Happy presenting! [wave]
 
     /// Handles a sidebar drop payload of page-ID strings.
     private func movePages(_ items: [String], to folderID: UUID?) -> Bool {
-        let ids = items.compactMap { UUID(uuidString: $0) }
+        let ids = decodeDrop(items)
         guard !ids.isEmpty else { return false }
         if isRecording {
             stopRecording()
         }
         withAnimation(.easeInOut(duration: 0.2)) {
-            for id in ids {
-                service.movePage(id: id, to: folderID)
-            }
+            service.movePages(ids: ids, to: folderID)
         }
         return true
     }
 
-    private func movePage(at index: Int, to folderID: UUID?) {
-        guard let id = service.pageID(at: index) else { return }
+    private func movePages(_ items: [String], before targetID: UUID) -> Bool {
+        let ids = decodeDrop(items)
+        guard !ids.isEmpty else { return false }
         if isRecording {
             stopRecording()
         }
         withAnimation(.easeInOut(duration: 0.2)) {
-            service.movePage(id: id, to: folderID)
+            service.movePages(ids: ids, before: targetID)
+        }
+        return true
+    }
+
+    private func decodeDrop(_ items: [String]) -> [UUID] {
+        items
+            .flatMap { $0.split(separator: " ") }
+            .compactMap { UUID(uuidString: String($0)) }
+    }
+
+    private func moveSelection(_ ids: [UUID], to folderID: UUID?) {
+        if isRecording {
+            stopRecording()
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            service.movePages(ids: ids, to: folderID)
         }
     }
 
-    private func newFolder(withPageAt index: Int? = nil) {
+    private func newFolder(with pageIDs: [UUID] = []) {
         let name = "Folder \(service.folders.count + 1)"
         let folder = service.addFolder(named: name)
-        if let index, let id = service.pageID(at: index) {
-            service.movePage(id: id, to: folder.id)
+        if !pageIDs.isEmpty {
+            service.movePages(ids: pageIDs, to: folder.id)
         }
         folderNameDraft = name
         renamingFolderID = folder.id
