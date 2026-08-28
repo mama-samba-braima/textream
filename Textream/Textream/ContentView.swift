@@ -697,12 +697,20 @@ Happy presenting! [wave]
                 }
             }
 
-            Section {
-                ForEach(service.pageIndexes(inFolder: nil), id: \.self) { index in
-                    pageRow(at: index)
+            // Only collapsible once there are folders: without a header there would be no
+            // control to reopen the section with.
+            if service.folders.isEmpty {
+                Section {
+                    ForEach(service.pageIndexes(inFolder: nil), id: \.self) { index in
+                        pageRow(at: index)
+                    }
                 }
-            } header: {
-                if !service.folders.isEmpty {
+            } else {
+                Section(isExpanded: $service.ungroupedIsExpanded) {
+                    ForEach(service.pageIndexes(inFolder: nil), id: \.self) { index in
+                        pageRow(at: index)
+                    }
+                } header: {
                     Text("Pages")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)

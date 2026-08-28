@@ -45,6 +45,9 @@ class TextreamService: NSObject, ObservableObject {
     @Published private(set) var pageIDs: [UUID] = [UUID()]
     /// Folders, in sidebar order. Their pages come first in the running order, ungrouped pages last.
     @Published var folders: [PageFolder] = []
+    /// Expansion of the ungrouped "Pages" section. Owned here, not left to SwiftUI, so that adding
+    /// a page can open the section it lands in.
+    @Published var ungroupedIsExpanded: Bool = true
     @Published var currentPageIndex: Int = 0
     @Published var readPages: Set<Int> = []
 
@@ -246,12 +249,23 @@ class TextreamService: NSObject, ObservableObject {
         let id = UUID()
         pages.append("")
         pageIDs.append(id)
+        expand(folderID)
         if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
             folders[index].pageIDs.append(id)
-            folders[index].isExpanded = true
         }
         rebuildOrder(keeping: id)
         return currentPageIndex
+    }
+
+    /// Opens the section a page is about to land in, so it is never added out of sight.
+    private func expand(_ folderID: UUID?) {
+        guard let folderID else {
+            ungroupedIsExpanded = true
+            return
+        }
+        if let index = folders.firstIndex(where: { $0.id == folderID }) {
+            folders[index].isExpanded = true
+        }
     }
 
     func removePage(at index: Int) {
@@ -285,9 +299,9 @@ class TextreamService: NSObject, ObservableObject {
         for index in folders.indices {
             folders[index].pageIDs.removeAll { $0 == id }
         }
+        expand(folderID)
         if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
             folders[index].pageIDs.append(id)
-            folders[index].isExpanded = true
         }
         rebuildOrder(keeping: keptID ?? id)
     }
@@ -308,7 +322,13 @@ class TextreamService: NSObject, ObservableObject {
     /// Removes the folder. Its pages survive and drop back into the ungrouped section.
     func deleteFolder(id: UUID) {
         let keptID = pageID(at: currentPageIndex)
+        if folders.first(where: { $0.id == id })?.pageIDs.isEmpty == false {
+            ungroupedIsExpanded = true
+        }
         folders.removeAll { $0.id == id }
+        if folders.isEmpty {
+            ungroupedIsExpanded = true
+        }
         rebuildOrder(keeping: keptID)
     }
 
