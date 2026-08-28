@@ -559,7 +559,7 @@ Happy presenting! [wave]
                             stopRecording()
                         }
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            _ = service.addPage()
+                            _ = service.addPageNearSelection()
                         }
                     } label: {
                         HStack(spacing: 3) {
@@ -737,7 +737,7 @@ Happy presenting! [wave]
                     stopRecording()
                 }
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    _ = service.addPage()
+                    _ = service.addPageNearSelection()
                 }
             } label: {
                 Label("Add Page", systemImage: "plus")

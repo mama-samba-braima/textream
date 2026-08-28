@@ -228,6 +228,14 @@ class TextreamService: NSObject, ObservableObject {
         }
     }
 
+    /// Adds a page to whichever folder the current page lives in, so a new page appears where you
+    /// are working rather than at the bottom of the sidebar.
+    @discardableResult
+    func addPageNearSelection() -> Int {
+        addPage(to: folderID(forPageAt: currentPageIndex))
+    }
+
+    /// Adds a page, expanding the target folder so the new page is never added out of sight.
     @discardableResult
     func addPage(to folderID: UUID? = nil) -> Int {
         ensurePageIDs()
