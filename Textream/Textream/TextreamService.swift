@@ -77,13 +77,27 @@ private struct SessionSnapshot: Codable {
     var folders: [PageFolder]
     var pinnedPageIDs: [UUID]
     var currentPageIndex: Int
+    /// Pages ticked off in the sidebar.
+    var donePageIDs: [UUID]
+    /// Sections ticked off, keyed by page ID and holding heading text.
+    var doneSections: [String: [String]]
 
-    init(pages: [String], pageIDs: [UUID], folders: [PageFolder], pinnedPageIDs: [UUID], currentPageIndex: Int) {
+    init(
+        pages: [String],
+        pageIDs: [UUID],
+        folders: [PageFolder],
+        pinnedPageIDs: [UUID],
+        currentPageIndex: Int,
+        donePageIDs: [UUID],
+        doneSections: [String: [String]]
+    ) {
         self.pages = pages
         self.pageIDs = pageIDs
         self.folders = folders
         self.pinnedPageIDs = pinnedPageIDs
         self.currentPageIndex = currentPageIndex
+        self.donePageIDs = donePageIDs
+        self.doneSections = doneSections
     }
 
     // Field by field, so a snapshot written by an older build still restores.
@@ -95,6 +109,8 @@ private struct SessionSnapshot: Codable {
         folders = try container.decodeIfPresent([PageFolder].self, forKey: .folders) ?? []
         pinnedPageIDs = try container.decodeIfPresent([UUID].self, forKey: .pinnedPageIDs) ?? []
         currentPageIndex = try container.decodeIfPresent(Int.self, forKey: .currentPageIndex) ?? 0
+        donePageIDs = try container.decodeIfPresent([UUID].self, forKey: .donePageIDs) ?? []
+        doneSections = try container.decodeIfPresent([String: [String]].self, forKey: .doneSections) ?? [:]
     }
 }
 
@@ -130,6 +146,12 @@ class TextreamService: NSObject, ObservableObject {
     @Published var ungroupedIsExpanded: Bool = true
     /// Pages pinned to the top of the section they live in.
     @Published var pinnedPageIDs: Set<UUID> = []
+    /// Pages ticked off in the sidebar. A script is a to-do list of things to record, so a page
+    /// can be marked done without being deleted.
+    @Published var donePageIDs: Set<UUID> = []
+    /// Sections ticked off, keyed by page and held by heading text rather than index: editing a
+    /// script above a section must never tick a different one.
+    @Published var doneSectionTitles: [UUID: Set<String>] = [:]
     @Published var currentPageIndex: Int = 0
     @Published var readPages: Set<Int> = []
     /// Markdown `##` sections of the current page. Empty when the page has no headings, in which
@@ -504,6 +526,50 @@ class TextreamService: NSObject, ObservableObject {
         rebuildOrder(keeping: kept)
     }
 
+    // MARK: Done
+
+    func isDone(_ pageID: UUID) -> Bool {
+        donePageIDs.contains(pageID)
+    }
+
+    /// Ticking a page off ticks off everything in it, which is what "done" means for a script
+    /// that is read section by section. Unticking it clears the lot.
+    func toggleDone(pageID: UUID) {
+        if donePageIDs.contains(pageID) {
+            donePageIDs.remove(pageID)
+            doneSectionTitles[pageID] = nil
+        } else {
+            donePageIDs.insert(pageID)
+            let titles = outline(for: pageID).map(\.title)
+            if !titles.isEmpty {
+                doneSectionTitles[pageID] = Set(titles)
+            }
+        }
+    }
+
+    func isDone(pageID: UUID, sectionTitle: String) -> Bool {
+        doneSectionTitles[pageID]?.contains(sectionTitle) ?? false
+    }
+
+    /// Ticking off the last section of a page ticks off the page too, so the sidebar agrees with
+    /// itself without the operator having to tick twice.
+    func toggleDone(pageID: UUID, sectionTitle: String) {
+        var titles = doneSectionTitles[pageID] ?? []
+        if titles.contains(sectionTitle) {
+            titles.remove(sectionTitle)
+        } else {
+            titles.insert(sectionTitle)
+        }
+        doneSectionTitles[pageID] = titles.isEmpty ? nil : titles
+
+        let all = outline(for: pageID).map(\.title)
+        if !all.isEmpty && all.allSatisfy({ titles.contains($0) }) {
+            donePageIDs.insert(pageID)
+        } else {
+            donePageIDs.remove(pageID)
+        }
+    }
+
     // MARK: Mutation
 
     /// Repairs the ID list if pages were mutated directly, and drops stale references.
@@ -518,6 +584,8 @@ class TextreamService: NSObject, ObservableObject {
             folders[index].pageIDs.removeAll { !known.contains($0) }
         }
         pinnedPageIDs = pinnedPageIDs.intersection(known)
+        donePageIDs = donePageIDs.intersection(known)
+        doneSectionTitles = doneSectionTitles.filter { known.contains($0.key) }
     }
 
     /// Adds a page to whichever folder the current page lives in, so a new page appears where you
@@ -810,7 +878,11 @@ class TextreamService: NSObject, ObservableObject {
             pageIDs: pageIDs,
             folders: folders,
             pinnedPageIDs: Array(pinnedPageIDs),
-            currentPageIndex: currentPageIndex
+            currentPageIndex: currentPageIndex,
+            donePageIDs: Array(donePageIDs),
+            doneSections: doneSectionTitles.reduce(into: [String: [String]]()) { result, entry in
+                result[entry.key.uuidString] = Array(entry.value)
+            }
         )
         do {
             try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
@@ -838,6 +910,11 @@ class TextreamService: NSObject, ObservableObject {
             pinned: Set(snapshot.pinnedPageIDs)
         )
         savedPages = snapshot.pages
+        donePageIDs = Set(snapshot.donePageIDs)
+        doneSectionTitles = snapshot.doneSections.reduce(into: [UUID: Set<String>]()) { result, entry in
+            guard let id = UUID(uuidString: entry.key) else { return }
+            result[id] = Set(entry.value)
+        }
         if pages.indices.contains(snapshot.currentPageIndex) {
             currentPageIndex = snapshot.currentPageIndex
         }

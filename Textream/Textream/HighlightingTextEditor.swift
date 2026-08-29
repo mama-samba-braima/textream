@@ -35,6 +35,10 @@ struct HighlightingTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
+        // The script pane is white paper, so the text, caret and selection have to be the light
+        // ones. AppKit resolves those from the appearance, which SwiftUI's colour scheme cannot
+        // reach into.
+        scrollView.appearance = NSAppearance(named: .aqua)
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true

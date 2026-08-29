@@ -9,6 +9,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 import CoreImage.CIFilterBuiltins
 
+extension View {
+    /// The script pane reads like paper: white, in light colours, whatever the system theme is
+    /// doing. The prompter surfaces stay black; this is the writing side.
+    func paperSurface() -> some View {
+        self
+            .environment(\.colorScheme, .light)
+            .background(Color.white)
+    }
+}
+
 struct ContentView: View {
     @ObservedObject private var service = TextreamService.shared
     @State private var isRunning = false
@@ -363,6 +373,7 @@ Happy presenting! [wave]
                     } else {
                         HSplitView {
                             scriptEditor
+                                .paperSurface()
                                 .frame(minWidth: 260)
                             playMirror
                                 .frame(minWidth: 300)
@@ -372,10 +383,12 @@ Happy presenting! [wave]
                 } else if NotchSettings.shared.markdownPreviewEnabled {
                     markdownPreview
                         .mask(fadeMask)
+                        .paperSurface()
                         .transition(.opacity)
                 } else {
                     scriptEditor
                         .mask(fadeMask)
+                        .paperSurface()
                         .transition(.opacity)
                 }
 
@@ -1095,6 +1108,7 @@ Happy presenting! [wave]
         let isPinned = service.isPinned(id)
         let hasOutline = !service.outline(for: id).isEmpty
         let isExpanded = expandedOutlines.contains(id)
+        let isDone = service.isDone(id)
         return HStack(spacing: 5) {
             // The chevron is a button of its own, so opening the outline never moves the
             // selection off the page the operator is working on.
@@ -1128,6 +1142,8 @@ Happy presenting! [wave]
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .strikethrough(isDone, color: .secondary)
+                .foregroundStyle(isDone ? Color.secondary : Color.primary)
 
             if isPinned {
                 Image(systemName: "pin.fill")
@@ -1136,6 +1152,12 @@ Happy presenting! [wave]
             }
 
             Spacer(minLength: 0)
+
+            checkbox(isDone: isDone, help: isDone ? "Mark as not done" : "Mark as done") {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    service.toggleDone(pageID: id)
+                }
+            }
         }
         .contentShape(Rectangle())
         .tag(id)
@@ -1154,6 +1176,7 @@ Happy presenting! [wave]
             && !service.sections.isEmpty
             && service.currentSectionIndex == section.id
         let isRead = isCurrentPage && service.readSections.contains(section.id)
+        let isDone = service.isDone(pageID: pageID, sectionTitle: section.title)
         return HStack(spacing: 6) {
             Circle()
                 .fill(isCurrent ? Color.accentColor : (isRead ? Color.green.opacity(0.6) : Color.secondary.opacity(0.3)))
@@ -1163,7 +1186,15 @@ Happy presenting! [wave]
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .strikethrough(isDone, color: .secondary)
+                .opacity(isDone ? 0.6 : 1)
             Spacer(minLength: 0)
+
+            checkbox(isDone: isDone, size: 11, help: isDone ? "Mark section as not done" : "Mark section as done") {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    service.toggleDone(pageID: pageID, sectionTitle: section.title)
+                }
+            }
         }
         .padding(.leading, 21)
         .padding(.vertical, 1)
@@ -1172,6 +1203,20 @@ Happy presenting! [wave]
         .onTapGesture {
             openSection(pageID: pageID, section: section)
         }
+    }
+
+    /// The tick box on a sidebar row. A button of its own, so ticking something off never moves
+    /// the selection or opens the page.
+    private func checkbox(isDone: Bool, size: CGFloat = 12, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: size))
+                .foregroundStyle(isDone ? Color.green : Color.secondary.opacity(0.45))
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private func toggleOutline(_ id: UUID) {
@@ -1257,6 +1302,20 @@ Happy presenting! [wave]
         } label: {
             Label(allPinned ? (many ? "Unpin Pages" : "Unpin Page") : (many ? "Pin Pages" : "Pin Page"),
                   systemImage: allPinned ? "pin.slash" : "pin")
+        }
+
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                let allDone = targets.allSatisfy { service.isDone($0) }
+                for target in targets where service.isDone(target) == allDone {
+                    service.toggleDone(pageID: target)
+                }
+            }
+        } label: {
+            let allDone = targets.allSatisfy { service.isDone($0) }
+            Label(allDone ? (many ? "Mark Pages Not Done" : "Mark Not Done")
+                          : (many ? "Mark \(targets.count) Pages Done" : "Mark Done"),
+                  systemImage: allDone ? "circle" : "checkmark.circle")
         }
 
         Button {
