@@ -24,6 +24,9 @@ struct PlayModeView: View {
     /// Settled position. The read resumes from here.
     let onSeek: (Int) -> Void
     var onToggleExpand: (() -> Void)? = nil
+    /// Ends the read. Lives here so it sits centred on the mirror in both layouts, rather than on
+    /// the divider between the script and the mirror.
+    var onStop: (() -> Void)? = nil
 
     /// Words a single arrow press moves the read by.
     private static let nudgeWords = 5
@@ -269,6 +272,7 @@ struct PlayModeView: View {
                 nudgeControls
                 expandControl
                 sectionFooter
+                stopControl
             }
         }
         .background(Color.black)
@@ -370,6 +374,29 @@ struct PlayModeView: View {
             .padding(.leading, 16)
             .padding(.bottom, 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+    }
+
+    @ViewBuilder
+    private var stopControl: some View {
+        if let onStop {
+            Button(action: onStop) {
+                ZStack {
+                    Circle()
+                        .fill(Color.red)
+                    Image(systemName: "stop.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(.white)
+                        .frame(width: 16, height: 16)
+                }
+                .frame(width: 44, height: 44)
+                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+            }
+            .buttonStyle(.plain)
+            .help("Stop the read")
+            .padding(.bottom, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
     }
 

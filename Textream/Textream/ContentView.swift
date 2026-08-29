@@ -307,7 +307,8 @@ Happy presenting! [wave]
                 withAnimation(.easeInOut(duration: 0.2)) {
                     mirrorExpanded.toggle()
                 }
-            }
+            },
+            onStop: { stop() }
         )
     }
 
@@ -394,36 +395,30 @@ Happy presenting! [wave]
                             .buttonStyle(.plain)
                             }
 
+                            if !isRunning {
                             Button {
-                                if isRunning {
-                                    stop()
-                                } else {
-                                    run()
-                                }
+                                run()
                             } label: {
                                 ZStack {
                                     Circle()
-                                        .fill(isRunning ? Color.red : Color.accentColor)
+                                        .fill(Color.accentColor)
                                     // Resizable rather than font-sized: a font-sized SF Symbol
                                     // aligns on the text baseline, which leaves it off centre.
-                                    Image(systemName: isRunning ? "stop.fill" : "play.fill")
+                                    Image(systemName: "play.fill")
                                         .resizable()
                                         .scaledToFit()
                                         .foregroundStyle(.white)
                                         .frame(width: 16, height: 16)
                                         // A triangle's mass sits left of its bounding box, so it
                                         // needs a nudge to look centred in a circle.
-                                        .offset(x: isRunning ? 0 : 1.5)
+                                        .offset(x: 1.5)
                                 }
                                 .frame(width: 44, height: 44)
                                 .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
                             }
                             .buttonStyle(.plain)
-                            .disabled((!isRunning && !hasAnyContent) || isRecording)
-                            .opacity((!hasAnyContent && !isRunning) || isRecording ? 0.4 : 1)
-
-                            if isRunning {
-                                Spacer()
+                            .disabled(!hasAnyContent || isRecording)
+                            .opacity(!hasAnyContent || isRecording ? 0.4 : 1)
                             }
                         }
                     }
