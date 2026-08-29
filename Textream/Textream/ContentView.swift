@@ -347,11 +347,82 @@ Happy presenting! [wave]
         )
     }
 
+    /// Dictation lives on the writing side of the window: the waveform while recording, and the
+    /// microphone that starts it. The read's own transport is on the mirror.
+    private var dictationBar: some View {
+        VStack {
+            Spacer()
+            ZStack {
+                // Waveform pill centered to full width
+                if dictation.isRecording {
+                    waveformPill
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+
+                // Pinned to the bottom right of the script pane, out of the way of the words.
+                HStack(spacing: 10) {
+                    Spacer()
+
+                    if !isRunning {
+                    Button {
+                        if isRecording {
+                            stopRecording()
+                        } else {
+                            startRecording()
+                        }
+                    } label: {
+                        Group {
+                            if dictation.isStarting {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: isRecording ? "pause.fill" : "mic.fill")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 16, height: 16)
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(isRecording ? Color.orange : Color.red)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    }
+
+                }
+            }
+            .padding(20)
+        }
+        .animation(.easeInOut(duration: 0.25), value: isRecording)
+    }
+
+    /// The writing side of the window: the editor, or the rendered Markdown when the preview is on.
+    @ViewBuilder
+    private var scriptPane: some View {
+        if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
+            markdownPreview
+                .mask(fadeMask)
+                .paperSurface()
+                .transition(.opacity)
+        } else {
+            scriptEditor
+                .mask(fadeMask)
+                .paperSurface()
+                .overlay(alignment: .top) { findOverlay }
+                .transition(.opacity)
+        }
+    }
+
     private var playMirror: some View {
         PlayModeView(
             content: service.overlayController.overlayContent,
             speechRecognizer: service.overlayController.speechRecognizer,
             isExpanded: mirrorExpanded,
+            isRunning: isRunning,
+            onPlay: { run() },
             onScrub: { service.scrub(toCharOffset: $0) },
             onSeek: { service.seek(toCharOffset: $0) },
             onToggleExpand: {
@@ -374,110 +445,23 @@ Happy presenting! [wave]
             }
 
             ZStack {
-                // Mid-read the editor is useless, so it gives way to a mirror of what the
-                // talent is looking at, which doubles as a control surface.
-                if isRunning {
-                    if mirrorExpanded {
-                        playMirror
-                            .transition(.opacity)
-                    } else {
-                        HSplitView {
-                            scriptEditor
-                                .paperSurface()
-                                .overlay(alignment: .top) { findOverlay }
-                                .frame(minWidth: 260)
-                            playMirror
-                                .frame(minWidth: 300)
-                        }
-                        .transition(.opacity)
-                    }
-                } else if NotchSettings.shared.markdownPreviewEnabled {
-                    markdownPreview
-                        .mask(fadeMask)
-                        .paperSurface()
+                // Script on the left, what the talent sees on the right, take or no take. The
+                // mirror stands by with the section play would start, so starting one is a single
+                // press in the place the stop button will be.
+                if mirrorExpanded {
+                    playMirror
                         .transition(.opacity)
                 } else {
-                    scriptEditor
-                        .mask(fadeMask)
-                        .paperSurface()
-                        .overlay(alignment: .top) { findOverlay }
-                        .transition(.opacity)
-                }
-
-                // Bottom bar
-                VStack {
-                    Spacer()
-                    ZStack {
-                        // Waveform pill centered to full width
-                        if dictation.isRecording {
-                            waveformPill
-                                .transition(.scale(scale: 0.8).combined(with: .opacity))
-                        }
-
-                        // Pinned right while editing, centred during a read so it does not
-                        // land on the mirror's expand control in the bottom corner.
-                        HStack(spacing: 10) {
-                            Spacer()
-
-                            if !isRunning {
-                            Button {
-                                if isRecording {
-                                    stopRecording()
-                                } else {
-                                    startRecording()
-                                }
-                            } label: {
-                                Group {
-                                    if dictation.isStarting {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .tint(.white)
-                                    } else {
-                                        Image(systemName: isRecording ? "pause.fill" : "mic.fill")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: 16, height: 16)
-                                    }
-                                }
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(isRecording ? Color.orange : Color.red)
-                                .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                            }
-                            .buttonStyle(.plain)
-                            }
-
-                            if !isRunning {
-                            Button {
-                                run()
-                            } label: {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.accentColor)
-                                    // Resizable rather than font-sized: a font-sized SF Symbol
-                                    // aligns on the text baseline, which leaves it off centre.
-                                    Image(systemName: "play.fill")
-                                        .resizable()
-                                        .scaledToFit()
-                                        .foregroundStyle(.white)
-                                        .frame(width: 16, height: 16)
-                                        // A triangle's mass sits left of its bounding box, so it
-                                        // needs a nudge to look centred in a circle.
-                                        .offset(x: 1.5)
-                                }
-                                .frame(width: 44, height: 44)
-                                .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!hasAnyContent || isRecording)
-                            .opacity(!hasAnyContent || isRecording ? 0.4 : 1)
-                            }
-                        }
+                    HSplitView {
+                        scriptPane
+                            .overlay { dictationBar }
+                            .frame(minWidth: 280)
+                        playMirror
+                            .frame(minWidth: 320)
                     }
-                    .padding(20)
+                    .transition(.opacity)
                 }
-                .animation(.easeInOut(duration: 0.25), value: isRecording)
+
 
                 // Drop zone overlay — sits on top so TextEditor doesn't steal the drop
                 if isDroppingPresentation {
@@ -837,6 +821,15 @@ Happy presenting! [wave]
             .onChange(of: findQuery) { _, _ in
                 updateFindMatches(anchoredToCaret: true)
             }
+            .onChange(of: service.currentSectionIndex, initial: true) { _, _ in
+                if !isRunning { service.refreshPreview() }
+            }
+            .onChange(of: service.currentPageText) { _, _ in
+                if !isRunning { service.refreshPreview() }
+            }
+            .onChange(of: isRunning) { _, running in
+                if !running { service.refreshPreview() }
+            }
             .onChange(of: service.currentPageText) { _, _ in
                 updateFindMatches()
             }
@@ -871,7 +864,9 @@ Happy presenting! [wave]
         } message: {
             Text(dictation.error ?? "")
         }
-        .frame(minWidth: 360, minHeight: 240)
+        // The window holds a script and the mirror side by side, so it has two panes' worth of
+        // minimum rather than one.
+        .frame(minWidth: 700, minHeight: 420)
         .background(.ultraThinMaterial)
         .toolbar {
             ToolbarItem(placement: .automatic) {

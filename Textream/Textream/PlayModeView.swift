@@ -19,6 +19,11 @@ struct PlayModeView: View {
     @Bindable var speechRecognizer: SpeechRecognizer
     /// True when the mirror has the whole pane, false when it shares it with the script.
     var isExpanded: Bool = false
+    /// False when nothing is being read: the pane stands by, showing the section that play would
+    /// start, with a play button where stop lives during a take.
+    var isRunning: Bool = true
+    /// Starts the read. The pane is the transport, idle or not.
+    var onPlay: (() -> Void)? = nil
     /// Live position while dragging. Every surface follows, the recognizer is left alone.
     let onScrub: (Int) -> Void
     /// Settled position. The read resumes from here.
@@ -43,8 +48,13 @@ struct PlayModeView: View {
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
-    private var words: [String] { content.words }
-    private var totalCharCount: Int { content.totalCharCount }
+    /// The live read, or the standing preview of what play would start.
+    private var activeContent: OverlayContent {
+        isRunning ? content : service.previewContent
+    }
+
+    private var words: [String] { activeContent.words }
+    private var totalCharCount: Int { activeContent.totalCharCount }
 
     private var listeningMode: ListeningMode {
         NotchSettings.shared.listeningMode
@@ -60,6 +70,7 @@ struct PlayModeView: View {
     /// Where the read currently sits. Mirrors the prompter's own calculation, including
     /// following a remote's scrub.
     private var effectiveCharCount: Int {
+        guard isRunning else { return 0 }
         if let scrub = content.scrubCharOffset { return scrub }
         switch listeningMode {
         case .wordTracking:
@@ -155,18 +166,20 @@ struct PlayModeView: View {
                     .frame(width: max(6, geo.size.width * progress))
             }
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        onScrub(charOffset(atX: value.location.x, width: geo.size.width))
-                    }
-                    .onEnded { value in
-                        let offset = charOffset(atX: value.location.x, width: geo.size.width)
-                        timerWordProgress = wordProgressForCharOffset(offset)
-                        onSeek(offset)
-                    }
-            )
+            .gesture(isRunning ? scrubGesture(width: geo.size.width) : nil)
         }
+    }
+
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                onScrub(charOffset(atX: value.location.x, width: width))
+            }
+            .onEnded { value in
+                let offset = charOffset(atX: value.location.x, width: width)
+                timerWordProgress = wordProgressForCharOffset(offset)
+                onSeek(offset)
+            }
     }
 
     private func charOffset(atX x: CGFloat, width: CGFloat) -> Int {
@@ -298,7 +311,12 @@ struct PlayModeView: View {
         let isRead = service.readSections.contains(section.id)
 
         return Button {
-            service.readSection(at: section.id)
+            // Standing by, a chip picks where the take will start. Mid-take it jumps the read.
+            if isRunning {
+                service.readSection(at: section.id)
+            } else {
+                service.selectSection(at: section.id)
+            }
         } label: {
             HStack(spacing: 5) {
                 if isRead && !isCurrent {
@@ -317,7 +335,9 @@ struct PlayModeView: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(isCurrent ? "Playing this section" : "Play from this section")
+        .help(isCurrent
+              ? (isRunning ? "Playing this section" : "Play starts here")
+              : (isRunning ? "Play from this section" : "Start the next take here"))
     }
 
     private var mirror: some View {
@@ -359,7 +379,9 @@ struct PlayModeView: View {
                         }
                     }
 
-                nudgeControls
+                if isRunning {
+                    nudgeControls
+                }
                 expandControl
                 sectionFooter
                 stopControl
@@ -378,7 +400,7 @@ struct PlayModeView: View {
         .onReceive(scrollTimer) { _ in
             // A shadow of the prompter's own timer, kept only so the arrows know where the read
             // currently is. Any seek resyncs it, so it cannot drift far.
-            guard !isUserScrolling else { return }
+            guard isRunning, !isUserScrolling else { return }
             let done = totalCharCount > 0 && charOffsetForWordProgress(timerWordProgress) >= totalCharCount
             guard !done else { return }
             let speed = NotchSettings.shared.scrollSpeed
@@ -402,16 +424,20 @@ struct PlayModeView: View {
             // Deliberately unmirrored: a beam splitter flips the image back for the talent, and a
             // flipped monitor is unreadable for the operator.
             ExternalDisplayView(
-                content: TextreamService.shared.externalDisplayController.overlayContent,
+                content: isRunning
+                    ? TextreamService.shared.externalDisplayController.overlayContent
+                    : service.previewContent,
                 speechRecognizer: speechRecognizer,
                 mirrorAxis: nil,
-                showsMeter: false
+                showsMeter: false,
+                isLive: isRunning
             )
         } else {
             FloatingOverlayView(
-                content: content,
+                content: activeContent,
                 speechRecognizer: speechRecognizer,
-                baseHeight: NotchSettings.shared.textAreaHeight
+                baseHeight: NotchSettings.shared.textAreaHeight,
+                isLive: isRunning
             )
         }
     }
@@ -419,8 +445,10 @@ struct PlayModeView: View {
     /// True once the external display has a script to show, so the mirror follows the field
     /// monitor rather than the notch.
     private var isExternal: Bool {
-        NotchSettings.shared.externalDisplayMode != .off
-            && !TextreamService.shared.externalDisplayController.overlayContent.words.isEmpty
+        guard NotchSettings.shared.externalDisplayMode != .off else { return false }
+        // Standing by, there is no live surface to follow, so show the one play would use.
+        guard isRunning else { return true }
+        return !TextreamService.shared.externalDisplayController.overlayContent.words.isEmpty
     }
 
     /// The size the mirrored surface really is, so the mirror is a scaled copy of it.
@@ -439,7 +467,9 @@ struct PlayModeView: View {
     /// room, since a shortcut has to hang off a button to be live.
     @ViewBuilder
     private var sectionFooter: some View {
-        if !service.sections.isEmpty {
+        // Only during a take. Standing by, the cursor is in the script, and a bare arrow key
+        // belongs to whoever is typing.
+        if isRunning && !service.sections.isEmpty {
             HStack(spacing: 0) {
                 sectionKey(.leftArrow, enabled: service.hasPreviousSection) {
                     service.goToPreviousSection()
@@ -464,10 +494,28 @@ struct PlayModeView: View {
         .accessibilityHidden(true)
     }
 
-    /// The transport: retake and stop, together at the foot of the mirror where the hand goes.
+    /// The transport, at the foot of the mirror where the hand goes: play when standing by,
+    /// stop and its neighbours during a take. One button, one place, whatever the state.
     @ViewBuilder
     private var stopControl: some View {
-        if let onStop {
+        if !isRunning {
+            if let onPlay {
+                circleButton(
+                    systemImage: "play.fill",
+                    diameter: 44,
+                    glyph: 16,
+                    fill: Color.accentColor,
+                    tint: .white,
+                    help: service.sections.isEmpty
+                        ? "Start reading this page"
+                        : "Start reading section \(service.currentSectionIndex + 1)",
+                    action: onPlay
+                )
+                .offset(x: 1.5)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
+        } else if let onStop {
             // Stop stays exactly on the centre line whatever sits beside it, so the eye and the
             // hand always find it in the same place.
             ZStack {

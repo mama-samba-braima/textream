@@ -385,6 +385,18 @@ class TextreamService: NSObject, ObservableObject {
         return ranges[index]
     }
 
+    /// What the prompter would show if play were pressed now: the current section, tokenised
+    /// exactly as a real read is. Lets the mirror stand ready with the script rather than sitting
+    /// black until someone presses play.
+    let previewContent = OverlayContent()
+
+    func refreshPreview() {
+        refreshSections()
+        previewContent.apply(text: currentReadingText)
+        previewContent.hasNextPage = hasNextChunk
+        previewContent.nextIsSection = hasNextSection
+    }
+
     /// Parsed sections for any page, for the sidebar outline. Cached per page so that redrawing
     /// the sidebar does not re-parse every script on every keystroke.
     private var outlineCache: [UUID: (text: String, sections: [ScriptSection])] = [:]
@@ -439,6 +451,14 @@ class TextreamService: NSObject, ObservableObject {
         readSections.insert(index)
         readPages.insert(currentPageIndex)
         readText(sections[index].body)
+    }
+
+    /// Moves to a section without starting it, for picking where the next take begins.
+    func selectSection(at index: Int) {
+        refreshSections()
+        guard sections.indices.contains(index) else { return }
+        currentSectionIndex = index
+        refreshPreview()
     }
 
     func advanceToNextSection() {

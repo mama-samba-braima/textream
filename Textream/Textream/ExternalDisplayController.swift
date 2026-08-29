@@ -156,6 +156,9 @@ struct ExternalDisplayView: View {
     /// The meter along the bottom edge. Off when this view is being mirrored into the app window,
     /// which has a progress bar of its own and does not need two.
     var showsMeter: Bool = true
+    /// False when this is a standing preview of what pressing play would read, rather than a live
+    /// read: it shows the script from the top and nothing moves it.
+    var isLive: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -202,6 +205,8 @@ struct ExternalDisplayView: View {
     }
 
     private var effectiveCharCount: Int {
+        // A preview always sits at the top of the section: nothing has been read yet.
+        guard isLive else { return 0 }
         // While a remote is scrubbing, every surface follows the scrub position
         if let scrub = content.scrubCharOffset { return scrub }
         switch listeningMode {
@@ -236,7 +241,8 @@ struct ExternalDisplayView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if NotchSettings.shared.showElapsedTime {
+            // The clock times a take. Standing by, there is nothing to time.
+            if isLive && NotchSettings.shared.showElapsedTime {
                 // Deliberately outside the lens padding: the timer belongs in the corner of the
                 // screen, not in the band the talent is reading from.
                 ElapsedTimeView(fontSize: ExternalLensMetrics.timerFontSize)
@@ -252,7 +258,7 @@ struct ExternalDisplayView: View {
             }
         }
         .onReceive(scrollTimer) { _ in
-            guard !isDone, !isUserScrolling else { return }
+            guard isLive, !isDone, !isUserScrolling else { return }
             let speed = NotchSettings.shared.scrollSpeed // words per second
             switch listeningMode {
             case .classic:
@@ -286,11 +292,13 @@ struct ExternalDisplayView: View {
                     cueUnreadOpacity: NotchSettings.shared.cueBrightness.unreadOpacity,
                     cueReadOpacity: NotchSettings.shared.cueBrightness.readOpacity,
                     onWordTap: { charOffset in
+                        guard isLive else { return }
                         // Through the service, so every surface lands on the same word
                         timerWordProgress = wordProgressForCharOffset(charOffset)
                         TextreamService.shared.seek(toCharOffset: charOffset)
                     },
                     onManualScroll: { scrolling, newProgress in
+                        guard isLive else { return }
                         isUserScrolling = scrolling
                         let clamped = max(0, min(Double(words.count), newProgress))
                         let offset = charOffsetForWordProgress(clamped)

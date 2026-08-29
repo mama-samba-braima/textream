@@ -1241,6 +1241,9 @@ struct FloatingOverlayView: View {
     @Bindable var speechRecognizer: SpeechRecognizer
     let baseHeight: CGFloat
     var followingCursor: Bool = false
+    /// False when this is a standing preview of what pressing play would read, rather than a live
+    /// read: it shows the script from the top and nothing moves it.
+    var isLive: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -1294,6 +1297,8 @@ struct FloatingOverlayView: View {
     }
 
     private var effectiveCharCount: Int {
+        // A preview always sits at the top of the section: nothing has been read yet.
+        guard isLive else { return 0 }
         // While a remote is scrubbing, every surface follows the scrub position
         if let scrub = content.scrubCharOffset { return scrub }
         switch listeningMode {
@@ -1329,7 +1334,7 @@ struct FloatingOverlayView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
-            if NotchSettings.shared.showElapsedTime {
+            if isLive && NotchSettings.shared.showElapsedTime {
                 ElapsedTimeView(fontSize: 11)
                     .padding(.top, 6)
                     .padding(.trailing, 10)
@@ -1385,7 +1390,7 @@ struct FloatingOverlayView: View {
             }
         }
         .onReceive(scrollTimer) { _ in
-            guard !isDone, !isUserScrolling else { return }
+            guard isLive, !isDone, !isUserScrolling else { return }
             let speed = NotchSettings.shared.scrollSpeed // words per second
             switch listeningMode {
             case .classic:
@@ -1420,11 +1425,13 @@ struct FloatingOverlayView: View {
                 cueUnreadOpacity: NotchSettings.shared.cueBrightness.unreadOpacity,
                 cueReadOpacity: NotchSettings.shared.cueBrightness.readOpacity,
                 onWordTap: { charOffset in
+                    guard isLive else { return }
                     // Through the service, so every surface lands on the same word
                     timerWordProgress = wordProgressForCharOffset(charOffset)
                     TextreamService.shared.seek(toCharOffset: charOffset)
                 },
                 onManualScroll: { scrolling, newProgress in
+                    guard isLive else { return }
                     isUserScrolling = scrolling
                     let clamped = max(0, min(Double(words.count), newProgress))
                     let offset = charOffsetForWordProgress(clamped)
