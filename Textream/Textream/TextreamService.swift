@@ -132,6 +132,11 @@ class TextreamService: NSObject, ObservableObject {
     @Published var pinnedPageIDs: Set<UUID> = []
     @Published var currentPageIndex: Int = 0
     @Published var readPages: Set<Int> = []
+    /// Markdown `##` sections of the current page. Empty when the page has no headings, in which
+    /// case the page is read whole, exactly as before.
+    @Published var sections: [ScriptSection] = []
+    @Published var currentSectionIndex: Int = 0
+    @Published var readSections: Set<Int> = []
 
     var hasNextPage: Bool {
         for i in (currentPageIndex + 1)..<pages.count {
@@ -154,12 +159,17 @@ class TextreamService: NSObject, ObservableObject {
         launchedExternally = true
         hideMainWindow()
 
-        overlayController.show(text: trimmed, hasNextPage: hasNextPage) { [weak self] in
+        overlayController.show(text: trimmed, hasNextPage: hasNextChunk) { [weak self] in
             self?.externalDisplayController.dismiss()
             self?.browserServer.hideContent()
             self?.onOverlayDismissed?()
         }
         updatePageInfo()
+
+        let nextIsSection = hasNextSection
+        for content in [overlayController.overlayContent, externalDisplayController.overlayContent] {
+            content.nextIsSection = nextIsSection
+        }
 
         // Also show on external display if configured (same parsing as overlay)
         let tokenized = tokenizeText(trimmed)
@@ -170,7 +180,7 @@ class TextreamService: NSObject, ObservableObject {
             words: words,
             lineBreaks: tokenized.breaksBefore,
             totalCharCount: totalCharCount,
-            hasNextPage: hasNextPage
+            hasNextPage: hasNextChunk
         )
 
         if browserServer.isRunning {
@@ -178,19 +188,29 @@ class TextreamService: NSObject, ObservableObject {
                 speechRecognizer: overlayController.speechRecognizer,
                 words: words,
                 totalCharCount: totalCharCount,
-                hasNextPage: hasNextPage
+                hasNextPage: hasNextChunk
             )
         }
     }
 
     func readCurrentPage() {
-        let trimmed = currentPageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        refreshSections()
+        if !sections.isEmpty {
+            readSection(at: min(currentSectionIndex, sections.count - 1))
+            return
+        }
+        let trimmed = MarkdownScript.plainText(from: currentPageText)
         guard !trimmed.isEmpty else { return }
         readPages.insert(currentPageIndex)
         readText(trimmed)
     }
 
     func advanceToNextPage() {
+        // Sections come first: a page is only finished once its last section is
+        if hasNextSection {
+            advanceToNextSection()
+            return
+        }
         // Skip empty pages
         var nextIndex = currentPageIndex + 1
         while nextIndex < pages.count {
@@ -216,11 +236,19 @@ class TextreamService: NSObject, ObservableObject {
         currentPageIndex = index
         readPages.insert(currentPageIndex)
 
-        let trimmed = currentPageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A new page starts at its first section, with its own progress
+        currentSectionIndex = 0
+        readSections.removeAll()
+        refreshSections()
+        if !sections.isEmpty {
+            readSections.insert(0)
+        }
+
+        let trimmed = currentReadingText
         guard !trimmed.isEmpty else { return }
 
         // Update content in-place without recreating the panel
-        overlayController.updateContent(text: trimmed, hasNextPage: hasNextPage)
+        overlayController.updateContent(text: trimmed, hasNextPage: hasNextChunk)
         updatePageInfo()
 
         // Also update external display content in-place
@@ -229,13 +257,16 @@ class TextreamService: NSObject, ObservableObject {
         externalDisplayController.overlayContent.words = words
         externalDisplayController.overlayContent.lineBreaks = tokenized.breaksBefore
         externalDisplayController.overlayContent.totalCharCount = words.joined(separator: " ").count
-        externalDisplayController.overlayContent.hasNextPage = hasNextPage
+        externalDisplayController.overlayContent.hasNextPage = hasNextChunk
+        for content in [overlayController.overlayContent, externalDisplayController.overlayContent] {
+            content.nextIsSection = hasNextSection
+        }
 
         if browserServer.isRunning {
             browserServer.updateContent(
                 words: words,
                 totalCharCount: words.joined(separator: " ").count,
-                hasNextPage: hasNextPage
+                hasNextPage: hasNextChunk
             )
         }
 
@@ -279,6 +310,61 @@ class TextreamService: NSObject, ObservableObject {
 
     @Published var currentFileURL: URL?
     @Published var savedPages: [String] = [""]
+
+    // MARK: - Script Sections
+
+    /// The text actually being read: the current section when the page has headings, the whole
+    /// page otherwise. Either way Markdown syntax is stripped, so no `#` ever reaches the screen.
+    var currentReadingText: String {
+        if sections.indices.contains(currentSectionIndex) {
+            return sections[currentSectionIndex].body
+        }
+        return MarkdownScript.plainText(from: currentPageText)
+    }
+
+    var hasNextSection: Bool {
+        !sections.isEmpty && currentSectionIndex + 1 < sections.count
+    }
+
+    /// True when finishing the current read leads somewhere, which is what the prompter's
+    /// end-of-read button asks about.
+    var hasNextChunk: Bool {
+        hasNextSection || hasNextPage
+    }
+
+    /// Recomputes sections for the current page, keeping the reader on the same section where it
+    /// still exists, so editing a script mid-read does not throw the talent to a different place.
+    func refreshSections() {
+        let parsed = MarkdownScript.sections(from: currentPageText)
+        let previousTitle = sections.indices.contains(currentSectionIndex)
+            ? sections[currentSectionIndex].title
+            : nil
+        sections = parsed
+        if let previousTitle, let match = parsed.firstIndex(where: { $0.title == previousTitle }) {
+            currentSectionIndex = match
+        } else {
+            currentSectionIndex = min(currentSectionIndex, max(0, parsed.count - 1))
+        }
+    }
+
+    /// Reads one section and stops at its end. Continuing is a deliberate act, so the talent can
+    /// breathe, reset, or retake without the prompter running on into the next part.
+    func readSection(at index: Int) {
+        refreshSections()
+        guard sections.indices.contains(index) else {
+            readCurrentPage()
+            return
+        }
+        currentSectionIndex = index
+        readSections.insert(index)
+        readPages.insert(currentPageIndex)
+        readText(sections[index].body)
+    }
+
+    func advanceToNextSection() {
+        guard hasNextSection else { return }
+        readSection(at: currentSectionIndex + 1)
+    }
 
     // MARK: - Page Organization
 
@@ -586,7 +672,8 @@ class TextreamService: NSObject, ObservableObject {
     /// The prompter, the external display and the phone remote all follow the new text.
     func refreshLiveScript() {
         guard overlayController.isShowing else { return }
-        let text = currentPageText
+        refreshSections()
+        let text = currentReadingText
 
         for content in [overlayController.overlayContent, externalDisplayController.overlayContent] {
             content.apply(text: text)
@@ -598,7 +685,7 @@ class TextreamService: NSObject, ObservableObject {
         browserServer.updateContent(
             words: words,
             totalCharCount: words.joined(separator: " ").count,
-            hasNextPage: hasNextPage
+            hasNextPage: hasNextChunk
         )
     }
 

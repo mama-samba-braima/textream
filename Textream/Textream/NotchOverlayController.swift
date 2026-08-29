@@ -40,6 +40,10 @@ class OverlayContent {
     var totalCharCount: Int = 0
     var hasNextPage: Bool = false
 
+    /// Whether the next chunk is another section of this page rather than another page,
+    /// which is all the end-of-read button needs to label itself honestly.
+    var nextIsSection: Bool = false
+
     // Seek requested from a remote. `seekToken` increments on every request so
     // observing views react even when the same offset is sent twice.
     var seekCharOffset: Int = 0
@@ -1186,7 +1190,7 @@ struct NotchOverlayView: View {
                         speechRecognizer.shouldAdvancePage = true
                     } label: {
                         VStack(spacing: 4) {
-                            Text("Next Page")
+                            Text(content.nextIsSection ? "Next Section" : "Next Page")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.5))
                             Image(systemName: "forward.fill")
@@ -1648,7 +1652,7 @@ struct FloatingOverlayView: View {
                             .animation(.easeInOut(duration: 0.3), value: countdownRemaining)
                     }
                     if followingCursor {
-                        Text("Next Page")
+                        Text(content.nextIsSection ? "Next Section" : "Next Page")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(.white)
                     } else {
@@ -1659,7 +1663,7 @@ struct FloatingOverlayView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "play.fill")
                                     .font(.system(size: 14, weight: .bold))
-                                Text("Next Page")
+                                Text(content.nextIsSection ? "Next Section" : "Next Page")
                                     .font(.system(size: 14, weight: .bold))
                             }
                             .foregroundStyle(.white)

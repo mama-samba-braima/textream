@@ -355,7 +355,7 @@ struct ExternalDisplayView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 28, weight: .bold))
-                        Text("Next Page")
+                        Text(content.nextIsSection ? "Next Section" : "Next Page")
                             .font(.system(size: 28, weight: .bold))
                     }
                     .foregroundStyle(.white)

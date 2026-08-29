@@ -28,6 +28,7 @@ struct PlayModeView: View {
     /// Words a single arrow press moves the read by.
     private static let nudgeWords = 5
 
+    @ObservedObject private var service = TextreamService.shared
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -85,6 +86,66 @@ struct PlayModeView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if !service.sections.isEmpty {
+                sectionBar
+            }
+            mirror
+        }
+    }
+
+    /// Every section of the script, in order, so the read can be started anywhere. The current one
+    /// is marked, and sections already read are ticked, which is the whole state of a take at a
+    /// glance.
+    private var sectionBar: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(service.sections) { section in
+                        sectionChip(section)
+                            .id(section.id)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+            }
+            .background(.bar)
+            .onChange(of: service.currentSectionIndex) { _, index in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(index, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func sectionChip(_ section: ScriptSection) -> some View {
+        let isCurrent = section.id == service.currentSectionIndex
+        let isRead = service.readSections.contains(section.id)
+
+        return Button {
+            service.readSection(at: section.id)
+        } label: {
+            HStack(spacing: 5) {
+                if isRead && !isCurrent {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.green)
+                }
+                Text(section.title)
+                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(0.75))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isCurrent ? Color.accentColor : Color.primary.opacity(0.08))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(isCurrent ? "Playing this section" : "Play from this section")
+    }
+
+    private var mirror: some View {
         GeometryReader { geo in
             let native = nativeSize
             // Scaling up a small overlay past 2x only softens it, so cap the enlargement.
@@ -107,6 +168,7 @@ struct PlayModeView: View {
 
                 nudgeControls
                 expandControl
+                sectionFooter
             }
         }
         .background(Color.black)
@@ -173,6 +235,42 @@ struct PlayModeView: View {
             width: NotchSettings.shared.notchWidth,
             height: NotchSettings.shared.textAreaHeight
         )
+    }
+
+    /// Where the read stands, and the way on to the next section once this one is finished.
+    @ViewBuilder
+    private var sectionFooter: some View {
+        if !service.sections.isEmpty {
+            HStack(spacing: 10) {
+                Text("Section \(service.currentSectionIndex + 1) of \(service.sections.count)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45))
+
+                if service.hasNextSection {
+                    Button {
+                        service.advanceToNextSection()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("Next Section")
+                                .font(.system(size: 11, weight: .semibold))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.accentColor)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+                    .help("Start the next section (→)")
+                }
+            }
+            .padding(.leading, 16)
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
     }
 
     @ViewBuilder
