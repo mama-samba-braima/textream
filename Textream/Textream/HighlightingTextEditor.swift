@@ -26,6 +26,9 @@ struct HighlightingTextEditor: NSViewRepresentable {
     var followRange: NSRange? = nil
     /// One-shot: set caret to this position, then nilled out
     @Binding var caretPosition: Int?
+    /// One-shot: scroll this position to the top of the pane, then nilled out. Jumping to a
+    /// section should put its heading at the top, not merely somewhere on screen.
+    @Binding var scrollToTopPosition: Int?
     /// Continuously reported current caret position in the editor
     @Binding var editorCaretPosition: Int
 
@@ -102,6 +105,15 @@ struct HighlightingTextEditor: NSViewRepresentable {
             context.coordinator.clearFollowHighlight(textView)
         }
 
+        if let pos = scrollToTopPosition, pos <= textView.string.count {
+            let range = NSRange(location: pos, length: 0)
+            textView.setSelectedRange(range)
+            context.coordinator.scrollToTop(textView, location: pos)
+            DispatchQueue.main.async {
+                self.scrollToTopPosition = nil
+            }
+        }
+
         // Move caret to requested position (one-shot)
         if let pos = caretPosition, pos <= textView.string.count {
             let caretRange = NSRange(location: pos, length: 0)
@@ -140,6 +152,33 @@ struct HighlightingTextEditor: NSViewRepresentable {
                     self?.parent.editorCaretPosition = pos
                 }
             }
+        }
+
+        /// Puts `location` at the top of the visible area rather than merely on screen, which is
+        /// what `scrollRangeToVisible` alone would do.
+        func scrollToTop(_ textView: NSTextView, location: Int) {
+            guard let scrollView = textView.enclosingScrollView else { return }
+            let range = NSRange(location: location, length: 0)
+
+            if let layoutManager = textView.layoutManager, let container = textView.textContainer {
+                layoutManager.ensureLayout(for: container)
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
+                rect.origin.y += textView.textContainerInset.height
+
+                let clipView = scrollView.contentView
+                let lowest = max(0, textView.bounds.height - clipView.bounds.height)
+                let target = min(max(0, rect.minY - 2), lowest)
+                clipView.scroll(to: NSPoint(x: 0, y: target))
+                scrollView.reflectScrolledClipView(clipView)
+                return
+            }
+
+            // No layout manager to ask: scrolling past the target first, then back to it, leaves
+            // it against the top edge.
+            let below = NSRange(location: min(textView.string.count, location + 4000), length: 0)
+            textView.scrollRangeToVisible(below)
+            textView.scrollRangeToVisible(range)
         }
 
         private var bumpTimer: Timer?

@@ -41,6 +41,8 @@ struct ContentView: View {
     @State private var expandedOutlines: Set<UUID> = []
     /// Character offset the Markdown preview should scroll to, set by the sidebar outline.
     @State private var previewScrollTarget: Int?
+    /// Character offset the editor should bring to the top, set by the sidebar outline.
+    @State private var editorScrollTarget: Int?
     @State private var pendingDeleteIDs: [UUID] = []
     /// The word being read, pointed at in the script pane while a read is running.
     @State private var followRange: NSRange?
@@ -299,6 +301,7 @@ Happy presenting! [wave]
             highlightRange: dictationHighlightRange,
             followRange: isRunning ? followRange : nil,
             caretPosition: $dictationCaretPosition,
+            scrollToTopPosition: $editorScrollTarget,
             editorCaretPosition: $editorCaretPosition
         )
         .onChange(of: editorCaretPosition) { _, newPos in
@@ -1296,9 +1299,10 @@ Happy presenting! [wave]
         let isRead = isCurrentPage && service.readSections.contains(section.id)
         let isDone = service.isDone(pageID: pageID, sectionTitle: section.title)
         return HStack(spacing: 6) {
-            Circle()
-                .fill(isCurrent ? Color.accentColor : (isRead ? Color.green.opacity(0.6) : Color.secondary.opacity(0.3)))
-                .frame(width: sb(5), height: sb(5))
+            Text("\(section.id + 1).")
+                .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
+                .foregroundStyle(isCurrent ? Color.accentColor : (isRead ? Color.green : Color.secondary.opacity(0.7)))
+                .frame(minWidth: sb(15), alignment: .trailing)
             Text(section.title)
                 .font(.system(size: sb(11), weight: isCurrent ? .semibold : .regular))
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
@@ -1371,7 +1375,7 @@ Happy presenting! [wave]
         if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
             previewScrollTarget = location
         } else {
-            dictationCaretPosition = location
+            editorScrollTarget = location
         }
     }
 
