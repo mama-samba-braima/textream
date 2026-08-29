@@ -686,7 +686,7 @@ Happy presenting! [wave]
                 } detail: {
                     mainContent
                 }
-                .navigationSplitViewColumnWidth(min: 160, ideal: 200, max: 260)
+                .navigationSplitViewColumnWidth(min: sb(160), ideal: sb(200), max: sb(300))
             }
         }
         .alert(dropAlertTitle, isPresented: Binding(get: { dropError != nil }, set: { if !$0 { dropError = nil } })) {
@@ -837,6 +837,20 @@ Happy presenting! [wave]
 
     // MARK: - Page Sidebar
 
+    /// The sidebar grows with the script, so one control sizes the whole window rather than
+    /// leaving the page list tiny next to 30pt text. It is damped: the sidebar holds titles, not
+    /// prose, and it still has to fit in a column.
+    private var sidebarScale: CGFloat {
+        let ratio = NotchSettings.shared.editorFontSize / NotchSettings.defaultEditorFontSize
+        return min(1.5, max(0.9, 1 + (ratio - 1) * 0.6))
+    }
+
+    /// A sidebar metric at the current scale, be it a point size, an icon or a row inset.
+    private func sb(_ value: CGFloat) -> CGFloat {
+        (value * sidebarScale).rounded()
+    }
+
+
     private func pagePreview(_ page: String) -> String {
         let trimmed = page.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "Empty" }
@@ -881,7 +895,7 @@ Happy presenting! [wave]
                     let ids = service.pageIDs(inFolder: folder.id)
                     if ids.isEmpty {
                         Text("Drag pages here")
-                            .font(.system(size: 11))
+                            .font(.system(size: sb(11)))
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 2)
                     } else {
@@ -960,7 +974,7 @@ Happy presenting! [wave]
 
     private var ungroupedHeader: some View {
         Text("Pages")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: sb(11), weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -980,7 +994,7 @@ Happy presenting! [wave]
                 }
             } label: {
                 Label("Add Page", systemImage: "plus")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: sb(12), weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -994,9 +1008,9 @@ Happy presenting! [wave]
                 newFolder()
             } label: {
                 Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 12))
+                    .font(.system(size: sb(12)))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: sb(28), height: sb(28))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1006,9 +1020,9 @@ Happy presenting! [wave]
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 12))
+                    .font(.system(size: sb(12)))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: sb(28), height: sb(28))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1021,14 +1035,14 @@ Happy presenting! [wave]
     private func folderHeader(_ folder: PageFolder) -> some View {
         HStack(spacing: 6) {
             Image(systemName: folder.isPinned ? "pin.fill" : "folder")
-                .font(.system(size: 10))
+                .font(.system(size: sb(10)))
                 .foregroundStyle(folder.isPinned ? Color.accentColor : .secondary)
             Text(folder.name)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: sb(11), weight: .semibold))
                 .lineLimit(1)
             Spacer(minLength: 4)
             Text("\(folder.pageIDs.count)")
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: sb(10), design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
@@ -1119,27 +1133,27 @@ Happy presenting! [wave]
                     }
                 } label: {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: sb(9), weight: .semibold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .frame(width: 12, height: 16)
+                        .frame(width: sb(12), height: sb(16))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(isExpanded ? "Hide sections" : "Show sections")
             } else {
-                Color.clear.frame(width: 12, height: 16)
+                Color.clear.frame(width: sb(12), height: sb(16))
             }
 
             Text("\(index + 1)")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
                 .foregroundStyle(.primary)
-                .frame(width: 20, height: 20)
+                .frame(width: sb(20), height: sb(20))
                 .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: sb(5)))
 
             Text(pageTitle(id))
-                .font(.system(size: 12))
+                .font(.system(size: sb(12)))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .strikethrough(isDone, color: .secondary)
@@ -1147,13 +1161,13 @@ Happy presenting! [wave]
 
             if isPinned {
                 Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: sb(9)))
                     .foregroundStyle(Color.accentColor)
             }
 
             Spacer(minLength: 0)
 
-            checkbox(isDone: isDone, help: isDone ? "Mark as not done" : "Mark as done") {
+            checkbox(isDone: isDone, size: sb(12), help: isDone ? "Mark as not done" : "Mark as done") {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     service.toggleDone(pageID: id)
                 }
@@ -1180,9 +1194,9 @@ Happy presenting! [wave]
         return HStack(spacing: 6) {
             Circle()
                 .fill(isCurrent ? Color.accentColor : (isRead ? Color.green.opacity(0.6) : Color.secondary.opacity(0.3)))
-                .frame(width: 5, height: 5)
+                .frame(width: sb(5), height: sb(5))
             Text(section.title)
-                .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                .font(.system(size: sb(11), weight: isCurrent ? .semibold : .regular))
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1190,13 +1204,13 @@ Happy presenting! [wave]
                 .opacity(isDone ? 0.6 : 1)
             Spacer(minLength: 0)
 
-            checkbox(isDone: isDone, size: 11, help: isDone ? "Mark section as not done" : "Mark section as done") {
+            checkbox(isDone: isDone, size: sb(11), help: isDone ? "Mark section as not done" : "Mark section as done") {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     service.toggleDone(pageID: pageID, sectionTitle: section.title)
                 }
             }
         }
-        .padding(.leading, 21)
+        .padding(.leading, sb(21))
         .padding(.vertical, 1)
         .contentShape(Rectangle())
         .help(section.title)
@@ -1212,7 +1226,7 @@ Happy presenting! [wave]
             Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: size))
                 .foregroundStyle(isDone ? Color.green : Color.secondary.opacity(0.45))
-                .frame(width: 18, height: 18)
+                .frame(width: size + 6, height: size + 6)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
