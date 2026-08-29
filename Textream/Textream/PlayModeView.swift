@@ -179,14 +179,14 @@ struct PlayModeView: View {
                 scrollArrow(systemImage: "chevron.left", step: -1, proxy: proxy)
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 10) {
                         ForEach(service.sections) { section in
                             sectionChip(section)
                                 .id(section.id)
                         }
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 7)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 10)
                 }
 
                 scrollArrow(systemImage: "chevron.right", step: 1, proxy: proxy)
@@ -220,9 +220,9 @@ struct PlayModeView: View {
             }
         } label: {
             Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white.opacity(enabled ? 0.75 : 0.2))
-                .frame(width: 24, height: 26)
+                .frame(width: 30, height: 34)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -240,16 +240,16 @@ struct PlayModeView: View {
             HStack(spacing: 5) {
                 if isRead && !isCurrent {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.green)
                 }
                 Text(section.title)
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
                     .lineLimit(1)
             }
             .foregroundStyle(isCurrent ? Color.white : Color.white.opacity(0.7))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
             .background(isCurrent ? Color.accentColor : Color.white.opacity(0.12))
             .clipShape(Capsule())
         }
@@ -377,8 +377,9 @@ struct PlayModeView: View {
         if !service.sections.isEmpty {
             HStack(spacing: 10) {
                 Text("Section \(service.currentSectionIndex + 1) of \(service.sections.count)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .fixedSize()
 
                 // Section stepping lives on the arrow keys. These carry the shortcuts without
                 // taking up room, since a shortcut has to hang off a button to be live.
@@ -389,8 +390,8 @@ struct PlayModeView: View {
                     service.advanceToNextSection()
                 }
             }
-            .padding(.leading, 16)
-            .padding(.bottom, 14)
+            .padding(.leading, 20)
+            .padding(.bottom, 22)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
     }
