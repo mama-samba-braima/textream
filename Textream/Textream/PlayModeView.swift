@@ -105,7 +105,7 @@ struct PlayModeView: View {
                 nudgeControls
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Color.black)
         .onAppear {
             timerWordProgress = wordProgressForCharOffset(effectiveCharCount)
         }
@@ -173,14 +173,26 @@ struct PlayModeView: View {
 
     private var nudgeControls: some View {
         VStack(spacing: 10) {
-            nudgeButton(systemImage: "chevron.up", help: "Move the read back", words: -Self.nudgeWords)
-            nudgeButton(systemImage: "chevron.down", help: "Move the read forward", words: Self.nudgeWords)
+            nudgeButton(
+                systemImage: "chevron.up",
+                help: "Move the read back (↑)",
+                key: .upArrow,
+                words: -Self.nudgeWords
+            )
+            nudgeButton(
+                systemImage: "chevron.down",
+                help: "Move the read forward (↓)",
+                key: .downArrow,
+                words: Self.nudgeWords
+            )
         }
         .padding(.trailing, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
     }
 
-    private func nudgeButton(systemImage: String, help: String, words delta: Int) -> some View {
+    /// The arrow keys are bound to the buttons themselves, so they are live exactly as long as
+    /// this view is: during a read, and never while the editor has the window.
+    private func nudgeButton(systemImage: String, help: String, key: KeyEquivalent, words delta: Int) -> some View {
         Button {
             nudge(by: delta)
         } label: {
@@ -192,6 +204,7 @@ struct PlayModeView: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(key, modifiers: [])
         .help(help)
     }
 

@@ -289,9 +289,6 @@ Happy presenting! [wave]
                         onScrub: { service.scrub(toCharOffset: $0) },
                         onSeek: { service.seek(toCharOffset: $0) }
                     )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
                     .transition(.opacity)
                 } else {
                 HighlightingTextEditor(
