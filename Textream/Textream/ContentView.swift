@@ -43,6 +43,11 @@ struct ContentView: View {
     @State private var previewScrollTarget: Int?
     /// Character offset the editor should bring to the top, set by the sidebar outline.
     @State private var editorScrollTarget: Int?
+    @State private var showFind = false
+    @State private var findQuery = ""
+    @State private var findMatches: [NSRange] = []
+    @State private var findIndex = 0
+    @FocusState private var isFindFocused: Bool
     @State private var pendingDeleteIDs: [UUID] = []
     /// The word being read, pointed at in the script pane while a read is running.
     @State private var followRange: NSRange?
@@ -302,6 +307,8 @@ Happy presenting! [wave]
             followRange: isRunning ? followRange : nil,
             caretPosition: $dictationCaretPosition,
             scrollToTopPosition: $editorScrollTarget,
+            searchRanges: showFind ? findMatches : [],
+            activeSearchRange: showFind ? activeMatch : nil,
             editorCaretPosition: $editorCaretPosition
         )
         .onChange(of: editorCaretPosition) { _, newPos in
@@ -377,6 +384,7 @@ Happy presenting! [wave]
                         HSplitView {
                             scriptEditor
                                 .paperSurface()
+                                .overlay(alignment: .top) { findOverlay }
                                 .frame(minWidth: 260)
                             playMirror
                                 .frame(minWidth: 300)
@@ -392,6 +400,7 @@ Happy presenting! [wave]
                     scriptEditor
                         .mask(fadeMask)
                         .paperSurface()
+                        .overlay(alignment: .top) { findOverlay }
                         .transition(.opacity)
                 }
 
@@ -523,6 +532,141 @@ Happy presenting! [wave]
                 }
                 .allowsHitTesting(isDroppingPresentation)
             }
+        }
+    }
+
+    // MARK: - Find
+
+    private var activeMatch: NSRange? {
+        findMatches.indices.contains(findIndex) ? findMatches[findIndex] : nil
+    }
+
+    @ViewBuilder
+    private var findOverlay: some View {
+        if showFind {
+            findBar
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private var findBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            TextField("Find in script", text: $findQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isFindFocused)
+                .onSubmit { stepFind(by: 1) }
+
+            Text(findCountLabel)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(findMatches.isEmpty && !findQuery.isEmpty ? Color.red : Color.secondary)
+
+            findStep("chevron.up", by: -1, help: "Previous match (\u{21E7}\u{2318}G)")
+            findStep("chevron.down", by: 1, help: "Next match (\u{2318}G)")
+
+            Button {
+                closeFind()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close (esc)")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.black.opacity(0.08))
+                }
+        }
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .onExitCommand { closeFind() }
+    }
+
+    private func findStep(_ systemImage: String, by delta: Int, help: String) -> some View {
+        Button {
+            stepFind(by: delta)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(findMatches.isEmpty)
+        .opacity(findMatches.isEmpty ? 0.35 : 1)
+        .help(help)
+    }
+
+    private var findCountLabel: String {
+        if findQuery.isEmpty { return "" }
+        if findMatches.isEmpty { return "none" }
+        return "\(findIndex + 1) of \(findMatches.count)"
+    }
+
+    private func openFind() {
+        // Hits are marked in the text itself, which only the editor can do.
+        if NotchSettings.shared.markdownPreviewEnabled {
+            NotchSettings.shared.markdownPreviewEnabled = false
+        }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showFind = true
+        }
+        updateFindMatches(anchoredToCaret: true)
+        isFindFocused = true
+    }
+
+    private func closeFind() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showFind = false
+        }
+        isFindFocused = false
+        isTextFocused = true
+    }
+
+    private func stepFind(by delta: Int) {
+        guard !findMatches.isEmpty else { return }
+        // Wraps, so stepping past the last hit comes back round to the first.
+        findIndex = (findIndex + delta + findMatches.count) % findMatches.count
+    }
+
+    /// Recomputes the hits for the current query. `anchoredToCaret` starts from where the cursor
+    /// is, which is where the eye already is when a search begins.
+    private func updateFindMatches(anchoredToCaret: Bool = false) {
+        guard showFind, !findQuery.isEmpty else {
+            findMatches = []
+            findIndex = 0
+            return
+        }
+
+        let ranges = ScriptSearch.matches(of: findQuery, in: service.currentPageText)
+        let previous = activeMatch
+        findMatches = ranges
+        if ranges.isEmpty {
+            findIndex = 0
+        } else if anchoredToCaret {
+            findIndex = ranges.firstIndex { $0.location >= editorCaretPosition } ?? 0
+        } else if let previous, let held = ranges.firstIndex(where: { $0.location >= previous.location }) {
+            // Editing the script must not throw the search back to the top of the page.
+            findIndex = held
+        } else {
+            findIndex = min(findIndex, ranges.count - 1)
         }
     }
 
@@ -680,6 +824,28 @@ Happy presenting! [wave]
     }
 
     var body: some View {
+        windowBody
+            .onReceive(NotificationCenter.default.publisher(for: .findInScript)) { _ in
+                openFind()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .findNext)) { _ in
+                if showFind { stepFind(by: 1) } else { openFind() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .findPrevious)) { _ in
+                if showFind { stepFind(by: -1) } else { openFind() }
+            }
+            .onChange(of: findQuery) { _, _ in
+                updateFindMatches(anchoredToCaret: true)
+            }
+            .onChange(of: service.currentPageText) { _, _ in
+                updateFindMatches()
+            }
+            .onChange(of: service.currentPageIndex) { _, _ in
+                updateFindMatches(anchoredToCaret: true)
+            }
+    }
+
+    private var windowBody: some View {
         Group {
             if NotchSettings.shared.directorModeEnabled {
                 directorOverlay

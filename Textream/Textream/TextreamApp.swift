@@ -10,6 +10,9 @@ import SwiftUI
 extension Notification.Name {
     static let openSettings = Notification.Name("openSettings")
     static let openAbout = Notification.Name("openAbout")
+    static let findInScript = Notification.Name("findInScript")
+    static let findNext = Notification.Name("findNext")
+    static let findPrevious = Notification.Name("findPrevious")
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -163,6 +166,23 @@ struct TextreamApp: App {
                     TextreamService.shared.saveFileAs()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Find\u{2026}") {
+                    NotificationCenter.default.post(name: .findInScript, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
+                Button("Find Next") {
+                    NotificationCenter.default.post(name: .findNext, object: nil)
+                }
+                .keyboardShortcut("g", modifiers: .command)
+
+                Button("Find Previous") {
+                    NotificationCenter.default.post(name: .findPrevious, object: nil)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .windowArrangement) { }
             CommandGroup(replacing: .help) {

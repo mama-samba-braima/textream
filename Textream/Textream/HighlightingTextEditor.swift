@@ -29,6 +29,10 @@ struct HighlightingTextEditor: NSViewRepresentable {
     /// One-shot: scroll this position to the top of the pane, then nilled out. Jumping to a
     /// section should put its heading at the top, not merely somewhere on screen.
     @Binding var scrollToTopPosition: Int?
+    /// Every hit for the current search, marked so the shape of the matches is visible at a glance.
+    var searchRanges: [NSRange] = []
+    /// The hit being stepped through, marked more strongly and scrolled to.
+    var activeSearchRange: NSRange? = nil
     /// Continuously reported current caret position in the editor
     @Binding var editorCaretPosition: Int
 
@@ -97,6 +101,18 @@ struct HighlightingTextEditor: NSViewRepresentable {
         // Apply bump highlight on newly dictated range
         if let range = highlightRange, range.location + range.length <= textView.string.count {
             context.coordinator.applyBumpHighlight(textView, range: range)
+        }
+
+        if context.coordinator.lastSearchRanges != searchRanges
+            || context.coordinator.lastActiveSearchRange != activeSearchRange {
+            context.coordinator.lastSearchRanges = searchRanges
+            context.coordinator.lastActiveSearchRange = activeSearchRange
+            context.coordinator.applyHighlighting(textView)
+            if let active = activeSearchRange, active.location + active.length <= textView.string.count {
+                // Leaves the caret on the hit, so closing the search leaves you where you looked.
+                textView.setSelectedRange(active)
+                textView.scrollRangeToVisible(active)
+            }
         }
 
         if let range = followRange, range.location + range.length <= textView.string.count {
@@ -201,6 +217,8 @@ struct HighlightingTextEditor: NSViewRepresentable {
         }
 
         var lastFollowRange: NSRange?
+        var lastSearchRanges: [NSRange] = []
+        var lastActiveSearchRange: NSRange?
 
         func applyFollowHighlight(_ textView: NSTextView, range: NSRange) {
             guard range != lastFollowRange, let textStorage = textView.textStorage else { return }
@@ -251,6 +269,23 @@ struct HighlightingTextEditor: NSViewRepresentable {
                     .backgroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.08)
                 ]
                 textStorage.addAttributes(annotationAttributes, range: match.range)
+            }
+
+            // Search hits sit on top of the annotation styling, since a hit inside an
+            // annotation still has to be findable.
+            for range in parent.searchRanges where NSMaxRange(range) <= textStorage.length {
+                textStorage.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.systemYellow.withAlphaComponent(0.45),
+                    range: range
+                )
+            }
+            if let active = parent.activeSearchRange, NSMaxRange(active) <= textStorage.length {
+                textStorage.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.systemOrange.withAlphaComponent(0.75),
+                    range: active
+                )
             }
 
             textStorage.endEditing()
