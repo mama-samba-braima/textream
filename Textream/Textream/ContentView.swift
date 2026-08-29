@@ -897,8 +897,8 @@ Happy presenting! [wave]
                             .foregroundStyle(.tertiary)
                             .padding(.vertical, 2)
                     } else {
-                        ForEach(ids, id: \.self) { id in
-                            pageRows(id: id)
+                        ForEach(sidebarItems(ids)) { item in
+                            sidebarRow(item)
                         }
                     }
                 } header: {
@@ -910,14 +910,14 @@ Happy presenting! [wave]
             // control to reopen the section with.
             if service.folders.isEmpty {
                 Section {
-                    ForEach(service.pageIDs(inFolder: nil), id: \.self) { id in
-                        pageRows(id: id)
+                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
+                        sidebarRow(item)
                     }
                 }
             } else {
                 Section(isExpanded: $service.ungroupedIsExpanded) {
-                    ForEach(service.pageIDs(inFolder: nil), id: \.self) { id in
-                        pageRows(id: id)
+                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
+                        sidebarRow(item)
                     }
                 } header: {
                     ungroupedHeader
@@ -1147,15 +1147,43 @@ Happy presenting! [wave]
         }
     }
 
-    /// A page and, when it is a Markdown script with `##` headings, its sections listed under it
-    /// so any part of a long script is one click away.
-    @ViewBuilder
-    private func pageRows(id: UUID) -> some View {
-        pageRow(id: id)
-        if expandedOutlines.contains(id) {
-            ForEach(service.outline(for: id)) { section in
-                sectionRow(pageID: id, section: section)
+    /// One line of the sidebar: a page, or one of the `##` sections listed under it.
+    ///
+    /// Pages and their sections are flattened into a single list rather than nested, because a
+    /// List gives one row per element: emitting a page and its sections together made them a
+    /// single row, which then highlighted as a block when the page was selected.
+    private enum SidebarItem: Identifiable {
+        case page(UUID)
+        case section(pageID: UUID, section: ScriptSection)
+
+        var id: String {
+            switch self {
+            case .page(let id): return id.uuidString
+            case .section(let pageID, let section): return "\(pageID.uuidString)#\(section.id)"
             }
+        }
+    }
+
+    /// The pages in a folder, each followed by its sections when its outline is open.
+    private func sidebarItems(_ ids: [UUID]) -> [SidebarItem] {
+        var items: [SidebarItem] = []
+        for id in ids {
+            items.append(.page(id))
+            guard expandedOutlines.contains(id) else { continue }
+            for section in service.outline(for: id) {
+                items.append(.section(pageID: id, section: section))
+            }
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private func sidebarRow(_ item: SidebarItem) -> some View {
+        switch item {
+        case .page(let id):
+            pageRow(id: id)
+        case .section(let pageID, let section):
+            sectionRow(pageID: pageID, section: section)
         }
     }
 
@@ -1263,6 +1291,7 @@ Happy presenting! [wave]
         .padding(.vertical, 1)
         .contentShape(Rectangle())
         .help(section.title)
+        .selectionDisabled()
         .onTapGesture {
             openSection(pageID: pageID, section: section)
         }
