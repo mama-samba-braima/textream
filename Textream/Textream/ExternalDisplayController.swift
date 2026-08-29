@@ -151,6 +151,9 @@ struct ExternalDisplayView: View {
     @Bindable var content: OverlayContent
     @Bindable var speechRecognizer: SpeechRecognizer
     let mirrorAxis: MirrorAxis?
+    /// The meter along the bottom edge. Off when this view is being mirrored into the app window,
+    /// which has a progress bar of its own and does not need two.
+    var showsMeter: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -324,15 +327,17 @@ struct ExternalDisplayView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
 
-                AudioWaveformProgressView(
-                    levels: speechRecognizer.audioLevels,
-                    progress: totalCharCount > 0
-                        ? Double(effectiveCharCount) / Double(totalCharCount)
-                        : 0,
-                    adaptive: true
-                )
-                .frame(height: ExternalLensMetrics.progressHeight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                if showsMeter {
+                    AudioWaveformProgressView(
+                        levels: speechRecognizer.audioLevels,
+                        progress: totalCharCount > 0
+                            ? Double(effectiveCharCount) / Double(totalCharCount)
+                            : 0,
+                        adaptive: true
+                    )
+                    .frame(height: ExternalLensMetrics.progressHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
             }
         }
     }

@@ -404,7 +404,8 @@ struct PlayModeView: View {
             ExternalDisplayView(
                 content: TextreamService.shared.externalDisplayController.overlayContent,
                 speechRecognizer: speechRecognizer,
-                mirrorAxis: nil
+                mirrorAxis: nil,
+                showsMeter: false
             )
         } else {
             FloatingOverlayView(
