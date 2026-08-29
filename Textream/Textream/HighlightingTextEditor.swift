@@ -75,6 +75,15 @@ struct HighlightingTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
 
+        // The coordinator holds the view it was made with, so without this it keeps styling the
+        // text in the font the editor started with, whatever the size control says.
+        context.coordinator.parent = self
+
+        if textView.font != font {
+            textView.font = font
+            context.coordinator.applyHighlighting(textView)
+        }
+
         if textView.string != text {
             let selectedRanges = textView.selectedRanges
             textView.string = text

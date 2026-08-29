@@ -1032,25 +1032,30 @@ Happy presenting! [wave]
         .background(.bar)
     }
 
-    /// Sizes the sidebar. Kept to one button so the footer stays legible at a narrow column,
-    /// with the shortcuts carried alongside since a menu's own shortcuts only live while it is open.
+    /// Sizes the sidebar, right where the sidebar is. Narrow buttons rather than a stepper, so
+    /// they still fit beside Add Page when the column is at its narrowest.
     private var sidebarSizeMenu: some View {
-        Menu {
-            Button("Bigger") { adjustSidebarFontSize(by: 1) }
-            Button("Smaller") { adjustSidebarFontSize(by: -1) }
-            Divider()
-            Button("Reset") {
-                NotchSettings.shared.sidebarFontSize = NotchSettings.defaultSidebarFontSize
-            }
-        } label: {
-            Image(systemName: "textformat.size")
-                .font(.system(size: sb(12)))
-                .foregroundStyle(.secondary)
+        HStack(spacing: 0) {
+            sidebarSizeButton(
+                "textformat.size.smaller",
+                by: -1,
+                help: "Smaller sidebar text (\u{2325}\u{2318}-)",
+                disabled: NotchSettings.shared.sidebarFontSize <= NotchSettings.minSidebarFontSize
+            )
+            sidebarSizeButton(
+                "textformat.size.larger",
+                by: 1,
+                help: "Bigger sidebar text (\u{2325}\u{2318}+)",
+                disabled: NotchSettings.shared.sidebarFontSize >= NotchSettings.maxSidebarFontSize
+            )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: sb(28), height: sb(28))
-        .help("Sidebar text size (\u{2325}\u{2318}+ and \u{2325}\u{2318}-)")
+        .contextMenu {
+            Button("Reset Sidebar Text Size") {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    NotchSettings.shared.sidebarFontSize = NotchSettings.defaultSidebarFontSize
+                }
+            }
+        }
         .background {
             // Shortcut carriers: a Button is what makes a shortcut live, and these have no size.
             Group {
@@ -1062,6 +1067,27 @@ Happy presenting! [wave]
             .opacity(0)
             .accessibilityHidden(true)
         }
+    }
+
+    private func sidebarSizeButton(
+        _ systemImage: String,
+        by delta: Double,
+        help: String,
+        disabled: Bool
+    ) -> some View {
+        Button {
+            adjustSidebarFontSize(by: delta)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: sb(11)))
+                .foregroundStyle(.secondary)
+                .frame(width: sb(22), height: sb(28))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.35 : 1)
+        .help(help)
     }
 
     private func sidebarSizeKey(_ key: KeyEquivalent, by delta: Double) -> some View {

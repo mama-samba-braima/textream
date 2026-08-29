@@ -424,7 +424,7 @@ class NotchSettings {
 
     static let defaultSidebarFontSize: Double = 12
     static let minSidebarFontSize: Double = 9
-    static let maxSidebarFontSize: Double = 22
+    static let maxSidebarFontSize: Double = 28
 
     static let defaultEditorFontSize: Double = 16
     static let minEditorFontSize: Double = 11
