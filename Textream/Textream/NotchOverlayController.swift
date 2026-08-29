@@ -907,16 +907,19 @@ struct NotchOverlayView: View {
                 cueUnreadOpacity: NotchSettings.shared.cueBrightness.unreadOpacity,
                 cueReadOpacity: NotchSettings.shared.cueBrightness.readOpacity,
                 onWordTap: { charOffset in
-                    if listeningMode == .wordTracking {
-                        speechRecognizer.jumpTo(charOffset: charOffset)
-                    } else {
-                        timerWordProgress = wordProgressForCharOffset(charOffset)
-                    }
+                    // Through the service, so every surface lands on the same word
+                    timerWordProgress = wordProgressForCharOffset(charOffset)
+                    TextreamService.shared.seek(toCharOffset: charOffset)
                 },
                 onManualScroll: { scrolling, newProgress in
                     isUserScrolling = scrolling
-                    if !scrolling {
-                        timerWordProgress = max(0, min(Double(words.count), newProgress))
+                    let clamped = max(0, min(Double(words.count), newProgress))
+                    let offset = charOffsetForWordProgress(clamped)
+                    if scrolling {
+                        TextreamService.shared.scrub(toCharOffset: offset)
+                    } else {
+                        timerWordProgress = clamped
+                        TextreamService.shared.seek(toCharOffset: offset)
                     }
                 },
                 smoothScroll: listeningMode != .wordTracking,
@@ -1413,16 +1416,19 @@ struct FloatingOverlayView: View {
                 cueUnreadOpacity: NotchSettings.shared.cueBrightness.unreadOpacity,
                 cueReadOpacity: NotchSettings.shared.cueBrightness.readOpacity,
                 onWordTap: { charOffset in
-                    if listeningMode == .wordTracking {
-                        speechRecognizer.jumpTo(charOffset: charOffset)
-                    } else {
-                        timerWordProgress = wordProgressForCharOffset(charOffset)
-                    }
+                    // Through the service, so every surface lands on the same word
+                    timerWordProgress = wordProgressForCharOffset(charOffset)
+                    TextreamService.shared.seek(toCharOffset: charOffset)
                 },
                 onManualScroll: { scrolling, newProgress in
                     isUserScrolling = scrolling
-                    if !scrolling {
-                        timerWordProgress = max(0, min(Double(words.count), newProgress))
+                    let clamped = max(0, min(Double(words.count), newProgress))
+                    let offset = charOffsetForWordProgress(clamped)
+                    if scrolling {
+                        TextreamService.shared.scrub(toCharOffset: offset)
+                    } else {
+                        timerWordProgress = clamped
+                        TextreamService.shared.seek(toCharOffset: offset)
                     }
                 },
                 smoothScroll: listeningMode != .wordTracking,

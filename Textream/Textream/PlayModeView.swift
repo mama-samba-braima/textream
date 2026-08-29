@@ -7,10 +7,13 @@ import SwiftUI
 
 /// What the talent is looking at, mirrored into the main window while a read is running.
 ///
-/// The editor is useless mid-read, so this takes its place: the same script, the same live
-/// highlight, on the same black ground as the prompter. It is also a control surface. Scrolling
-/// it, tapping a word, or nudging with the arrows moves the read on every surface at once,
-/// through the same scrub and seek path the phone remote uses.
+/// A true mirror: it renders the same view the prompter renders, at that surface's own size, then
+/// scales the whole thing to fit the pane. Every wrap, every line break and every proportion is
+/// therefore identical by construction rather than by imitation, which is what re-implementing the
+/// layout could never guarantee.
+///
+/// It is also a control surface. Scrolling it, tapping a word, or nudging with the arrows moves the
+/// read on every surface at once, through the same scrub and seek path the phone remote uses.
 struct PlayModeView: View {
     @Bindable var content: OverlayContent
     @Bindable var speechRecognizer: SpeechRecognizer
@@ -80,41 +83,24 @@ struct PlayModeView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let fontSize = max(16, min(34, geo.size.width / 26))
+            let native = nativeSize
+            // Scaling up a small overlay past 2x only softens it, so cap the enlargement.
+            let scale = min(min(geo.size.width / native.width, geo.size.height / native.height), 2.0)
 
             ZStack {
                 Color.black
 
-                SpeechScrollView(
-                    words: words,
-                    lineBreaks: NotchSettings.shared.preserveLineBreaks ? content.lineBreaks : [:],
-                    highlightedCharCount: effectiveCharCount,
-                    font: .systemFont(ofSize: fontSize, weight: .semibold),
-                    highlightColor: NotchSettings.shared.fontColorPreset.color,
-                    cueColor: NotchSettings.shared.cueColorPreset.color,
-                    cueUnreadOpacity: NotchSettings.shared.cueBrightness.unreadOpacity,
-                    cueReadOpacity: NotchSettings.shared.cueBrightness.readOpacity,
-                    onWordTap: { charOffset in
-                        onSeek(charOffset)
-                        timerWordProgress = wordProgressForCharOffset(charOffset)
-                    },
-                    onManualScroll: { scrolling, newProgress in
-                        isUserScrolling = scrolling
-                        let clamped = max(0, min(Double(words.count), newProgress))
-                        let offset = charOffsetForWordProgress(clamped)
-                        if scrolling {
-                            onScrub(offset)
-                        } else {
-                            timerWordProgress = clamped
-                            onSeek(offset)
-                        }
-                    },
-                    smoothScroll: listeningMode != .wordTracking,
-                    smoothWordProgress: timerWordProgress,
-                    isListening: isEffectivelyListening
-                )
-                .padding(.horizontal, 28)
-                .padding(.vertical, 16)
+                surface
+                    .frame(width: native.width, height: native.height)
+                    .scaleEffect(scale, anchor: .center)
+                    .frame(width: native.width * scale, height: native.height * scale)
+                    .clipped()
+                    // The prompter's ground is black and so is the pane, so without this the
+                    // edges of the monitor being mirrored are invisible.
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                    )
 
                 nudgeControls
             }
@@ -127,6 +113,8 @@ struct PlayModeView: View {
             timerWordProgress = wordProgressForCharOffset(content.seekCharOffset)
         }
         .onReceive(scrollTimer) { _ in
+            // A shadow of the prompter's own timer, kept only so the arrows know where the read
+            // currently is. Any seek resyncs it, so it cannot drift far.
             guard !isUserScrolling else { return }
             let done = totalCharCount > 0 && charOffsetForWordProgress(timerWordProgress) >= totalCharCount
             guard !done else { return }
@@ -142,6 +130,45 @@ struct PlayModeView: View {
                 break
             }
         }
+    }
+
+    /// The live prompter view for whichever surface the talent is actually reading from.
+    @ViewBuilder
+    private var surface: some View {
+        if isExternal {
+            // Deliberately unmirrored: a beam splitter flips the image back for the talent, and a
+            // flipped monitor is unreadable for the operator.
+            ExternalDisplayView(
+                content: TextreamService.shared.externalDisplayController.overlayContent,
+                speechRecognizer: speechRecognizer,
+                mirrorAxis: nil
+            )
+        } else {
+            FloatingOverlayView(
+                content: content,
+                speechRecognizer: speechRecognizer,
+                baseHeight: NotchSettings.shared.textAreaHeight
+            )
+        }
+    }
+
+    /// True once the external display has a script to show, so the mirror follows the field
+    /// monitor rather than the notch.
+    private var isExternal: Bool {
+        NotchSettings.shared.externalDisplayMode != .off
+            && !TextreamService.shared.externalDisplayController.overlayContent.words.isEmpty
+    }
+
+    /// The size the mirrored surface really is, so the mirror is a scaled copy of it.
+    private var nativeSize: CGSize {
+        if isExternal {
+            let screen = TextreamService.shared.externalDisplayController.targetScreen()
+            return screen?.frame.size ?? CGSize(width: 1920, height: 1080)
+        }
+        return CGSize(
+            width: NotchSettings.shared.notchWidth,
+            height: NotchSettings.shared.textAreaHeight
+        )
     }
 
     private var nudgeControls: some View {
