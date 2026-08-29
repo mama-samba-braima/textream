@@ -31,7 +31,7 @@ struct PlayModeView: View {
     @ObservedObject private var service = TextreamService.shared
     /// Which chip the strip is parked on. Scrolling the bar never moves the read.
     @State private var scrollAnchor: Int = 0
-    @State private var qrEnlarged = false
+    @State private var qrEnlarged = true
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -103,8 +103,7 @@ struct PlayModeView: View {
     /// The address to scan to drive the prompter from a phone, kept where the operator is already
     /// looking rather than buried in Settings. Only appears while the remote server is running.
     private func remoteStrip(url: String) -> some View {
-        HStack(spacing: 10) {
-            Spacer(minLength: 0)
+        VStack(spacing: 6) {
             if let qr = RemoteConnection.qrCode(for: url) {
                 // Smoothed rather than nearest-neighbour: at these sizes the code is scaled by a
                 // fraction, and point sampling both biases it off centre and drops modules, which
@@ -113,25 +112,27 @@ struct PlayModeView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: qrSize, height: qrSize)
-                    .frame(width: qrSize + 8, height: qrSize + 8)
+                    .frame(width: qrSize + 10, height: qrSize + 10)
                     .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Scan to control from your phone")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.45))
-                Text(url)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-            }
+            Text("Scan to control from your phone")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.45))
 
-            Spacer(minLength: 0)
+            Text(url)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.85))
+                .textSelection(.enabled)
+                .lineLimit(1)
         }
-        .overlay(alignment: .trailing) {
+        .frame(maxWidth: .infinity)
+        .padding(.top, 18)
+        .padding(.bottom, 12)
+        .padding(.horizontal, 12)
+        .background(Color.black)
+        .overlay(alignment: .topTrailing) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     qrEnlarged.toggle()
@@ -145,11 +146,9 @@ struct PlayModeView: View {
             }
             .buttonStyle(.plain)
             .help(qrEnlarged ? "Shrink the code" : "Enlarge the code to scan from further away")
-            .padding(.trailing, 12)
+            .padding(.trailing, 10)
+            .padding(.top, 10)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.black)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(.white.opacity(0.08))
@@ -157,7 +156,7 @@ struct PlayModeView: View {
         }
     }
 
-    private var qrSize: CGFloat { qrEnlarged ? 96 : 44 }
+    private var qrSize: CGFloat { qrEnlarged ? 112 : 48 }
 
     /// Every section of the script, in order, so the read can be started anywhere. The current one
     /// is marked, and sections already read are ticked, which is the whole state of a take at a

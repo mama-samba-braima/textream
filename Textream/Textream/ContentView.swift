@@ -360,7 +360,8 @@ Happy presenting! [wave]
                                 .transition(.scale(scale: 0.8).combined(with: .opacity))
                         }
 
-                        // Buttons pinned right
+                        // Pinned right while editing, centred during a read so it does not
+                        // land on the mirror's expand control in the bottom corner.
                         HStack(spacing: 10) {
                             Spacer()
 
@@ -420,6 +421,10 @@ Happy presenting! [wave]
                             .buttonStyle(.plain)
                             .disabled((!isRunning && !hasAnyContent) || isRecording)
                             .opacity((!hasAnyContent && !isRunning) || isRecording ? 0.4 : 1)
+
+                            if isRunning {
+                                Spacer()
+                            }
                         }
                     }
                     .padding(20)
