@@ -380,24 +380,6 @@ struct PlayModeView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
 
-                Button {
-                    service.restartCurrentRead()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("Start Over")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.white.opacity(0.15))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Read this section again from the top")
-
                 // Section stepping lives on the arrow keys. These carry the shortcuts without
                 // taking up room, since a shortcut has to hang off a button to be live.
                 sectionKey(.leftArrow, enabled: service.hasPreviousSection) {
@@ -425,27 +407,64 @@ struct PlayModeView: View {
         .accessibilityHidden(true)
     }
 
+    /// The transport: retake and stop, together at the foot of the mirror where the hand goes.
     @ViewBuilder
     private var stopControl: some View {
         if let onStop {
-            Button(action: onStop) {
-                ZStack {
-                    Circle()
-                        .fill(Color.red)
-                    Image(systemName: "stop.fill")
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(.white)
-                        .frame(width: 16, height: 16)
-                }
-                .frame(width: 44, height: 44)
-                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+            // Stop stays exactly on the centre line whatever sits beside it, so the eye and the
+            // hand always find it in the same place.
+            ZStack {
+                circleButton(
+                    systemImage: "arrow.counterclockwise",
+                    diameter: 38,
+                    glyph: 15,
+                    fill: Color.white.opacity(0.15),
+                    tint: .white.opacity(0.85),
+                    help: "Read this section again from the top",
+                    action: { service.restartCurrentRead() }
+                )
+                .offset(x: -53)
+
+                circleButton(
+                    systemImage: "stop.fill",
+                    diameter: 44,
+                    glyph: 16,
+                    fill: Color.red,
+                    tint: .white,
+                    help: "Stop the read",
+                    action: onStop
+                )
             }
-            .buttonStyle(.plain)
-            .help("Stop the read")
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+    }
+
+    private func circleButton(
+        systemImage: String,
+        diameter: CGFloat,
+        glyph: CGFloat,
+        fill: Color,
+        tint: Color,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(fill)
+                // Resizable rather than font-sized, so the glyph centres on the circle instead of
+                // on a text baseline.
+                Image(systemName: systemImage)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(tint)
+                    .frame(width: glyph, height: glyph)
+            }
+            .frame(width: diameter, height: diameter)
+            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     @ViewBuilder
