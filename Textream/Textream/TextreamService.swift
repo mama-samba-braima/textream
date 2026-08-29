@@ -197,6 +197,7 @@ class TextreamService: NSObject, ObservableObject {
             browserServer.showContent(
                 speechRecognizer: overlayController.speechRecognizer,
                 words: words,
+                lineBreaks: tokenized.breaksBefore,
                 totalCharCount: totalCharCount,
                 hasNextPage: hasNextChunk
             )
@@ -275,6 +276,7 @@ class TextreamService: NSObject, ObservableObject {
         if browserServer.isRunning {
             browserServer.updateContent(
                 words: words,
+                lineBreaks: tokenized.breaksBefore,
                 totalCharCount: words.joined(separator: " ").count,
                 hasNextPage: hasNextChunk
             )
@@ -701,9 +703,11 @@ class TextreamService: NSObject, ObservableObject {
         }
         overlayController.speechRecognizer.updateScript(text)
 
-        let words = splitTextIntoWords(text)
+        let tokenized = tokenizeText(text)
+        let words = tokenized.words
         browserServer.updateContent(
             words: words,
+            lineBreaks: tokenized.breaksBefore,
             totalCharCount: words.joined(separator: " ").count,
             hasNextPage: hasNextChunk
         )
@@ -1065,6 +1069,7 @@ class TextreamService: NSObject, ObservableObject {
             browserServer.showContent(
                 speechRecognizer: overlayController.speechRecognizer,
                 words: words,
+                lineBreaks: tokenized.breaksBefore,
                 totalCharCount: totalCharCount,
                 hasNextPage: false
             )
@@ -1104,6 +1109,7 @@ class TextreamService: NSObject, ObservableObject {
         if browserServer.isRunning {
             browserServer.updateContent(
                 words: words,
+                lineBreaks: tokenized.breaksBefore,
                 totalCharCount: totalCharCount,
                 hasNextPage: false
             )

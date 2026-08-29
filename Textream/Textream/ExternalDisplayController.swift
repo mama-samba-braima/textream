@@ -345,12 +345,18 @@ struct ExternalDisplayView: View {
                 speechRecognizer.resume()
             }
         } label: {
-            Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.4))
-                .frame(width: 48, height: 48)
-                .background(.white.opacity(0.15))
-                .clipShape(Circle())
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.15))
+                // Resizable rather than font-sized: a font-sized SF Symbol aligns on the text
+                // baseline, which leaves it sitting high and left of the circle's centre.
+                Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.4))
+                    .frame(width: 22, height: 22)
+            }
+            .frame(width: 48, height: 48)
         }
         .buttonStyle(.plain)
     }

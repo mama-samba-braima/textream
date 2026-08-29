@@ -12,6 +12,9 @@ import Network
 
 struct BrowserState: Codable {
     let words: [String]
+    /// Word index (as a string, so this encodes as a JSON object) to the number of newlines
+    /// before that word. Empty when Preserve Line Breaks is off.
+    let lineBreaks: [String: Int]
     let highlightedCharCount: Int
     let totalCharCount: Int
     let audioLevels: [Double]
@@ -42,6 +45,7 @@ class BrowserServer {
 
     // Content state
     private var words: [String] = []
+    private var lineBreaks: [String: Int] = [:]
     private var totalCharCount: Int = 0
     private var hasNextPage: Bool = false
     private weak var speechRecognizer: SpeechRecognizer?
@@ -84,7 +88,8 @@ class BrowserServer {
 
     // MARK: - Content Management
 
-    func showContent(speechRecognizer: SpeechRecognizer, words: [String], totalCharCount: Int, hasNextPage: Bool) {
+    func showContent(speechRecognizer: SpeechRecognizer, words: [String], lineBreaks: [Int: Int] = [:], totalCharCount: Int, hasNextPage: Bool) {
+        self.lineBreaks = Self.encode(lineBreaks)
         self.speechRecognizer = speechRecognizer
         self.words = words
         self.totalCharCount = totalCharCount
@@ -95,7 +100,8 @@ class BrowserServer {
         startBroadcasting()
     }
 
-    func updateContent(words: [String], totalCharCount: Int, hasNextPage: Bool) {
+    func updateContent(words: [String], lineBreaks: [Int: Int] = [:], totalCharCount: Int, hasNextPage: Bool) {
+        self.lineBreaks = Self.encode(lineBreaks)
         self.words = words
         self.totalCharCount = totalCharCount
         self.hasNextPage = hasNextPage
@@ -264,6 +270,7 @@ class BrowserServer {
 
         let state = BrowserState(
             words: words,
+            lineBreaks: lineBreaks,
             highlightedCharCount: effective,
             totalCharCount: totalCharCount,
             audioLevels: (speechRecognizer?.audioLevels ?? []).map { Double($0) },
@@ -281,7 +288,7 @@ class BrowserServer {
 
     private func broadcastInactive() {
         let state = BrowserState(
-            words: [], highlightedCharCount: 0, totalCharCount: 0,
+            words: [], lineBreaks: [:], highlightedCharCount: 0, totalCharCount: 0,
             audioLevels: [], isListening: false, isDone: false,
             fontColor: "#ffffff", cueColor: "#ffffff", hasNextPage: false, isActive: false,
             highlightWords: true, lastSpokenText: ""
@@ -324,6 +331,13 @@ class BrowserServer {
             offset += Int(Double(words[wholeWord].count) * frac)
         }
         return min(offset, totalCharCount)
+    }
+
+    /// Honours Preserve Line Breaks here rather than at every call site, so the phone can never
+    /// end up showing a different shape of script from the prompter.
+    private static func encode(_ breaks: [Int: Int]) -> [String: Int] {
+        guard NotchSettings.shared.preserveLineBreaks else { return [:] }
+        return Dictionary(uniqueKeysWithValues: breaks.map { (String($0.key), $0.value) })
     }
 
     static func localIPAddress() -> String? {
@@ -410,6 +424,8 @@ class BrowserServer {
           font-weight:600;line-height:1.4;word-wrap:break-word}
         .w{display:inline;transition:color .12s ease}
         .w.ann{font-style:italic}
+        /* Author's line breaks: a hard break, plus a gap for a blank line between paragraphs */
+        .pgap{display:block;height:.45em}
 
         /* Bottom bar — matches ExternalDisplayView layout */
         #bar{flex-shrink:0;padding:12px max(40px,8%) 40px;
@@ -503,7 +519,7 @@ class BrowserServer {
         // so this stays cheap on long scripts while scrolling.
         function centerCharOffset(){
           const p=document.getElementById('prompter'),
-                spans=document.getElementById('text-container').children;
+                spans=document.getElementById('text-container').querySelectorAll('.w');
           if(!spans.length)return 0;
           const pr=p.getBoundingClientRect(),targetY=pr.top+pr.height*0.4;
           let lo=0,hi=spans.length-1,best=0;
@@ -562,6 +578,7 @@ class BrowserServer {
 
           const c=document.getElementById('text-container'),
                 words=s.words||[],
+                lb=s.lineBreaks||{},
                 fc=s.fontColor||'#ffffff',
                 cc=s.cueColor||fc,
                 rgb=parseColor(fc),
@@ -570,11 +587,17 @@ class BrowserServer {
                 hcc=s.highlightedCharCount||0;
 
           // Rebuild spans only when words change
-          const wordKey=words.length+'|'+(words[0]||'')+'|'+(words[words.length-1]||'');
+          const wordKey=words.length+'|'+(words[0]||'')+'|'+(words[words.length-1]||'')+'|'+Object.keys(lb).length;
           if(wordKey!==prevWordKey){
             c.innerHTML='';
             let cp=0;
             for(let i=0;i<words.length;i++){
+              const nb=lb[i]||0;
+              if(nb>0&&i>0){
+                c.appendChild(document.createElement('br'));
+                // A blank line in the script becomes a visible gap, not just another break
+                if(nb>1){const g=document.createElement('span');g.className='pgap';c.appendChild(g)}
+              }
               const wd=words[i],ann=isAnnotation(wd);
               const sp=document.createElement('span');
               sp.className=ann?'w ann':'w';
@@ -593,7 +616,7 @@ class BrowserServer {
           // Find the next-word index (first non-fully-lit non-annotation)
           let nextIdx=-1;
           if(hlWords){
-            const spans=c.children;
+            const spans=c.querySelectorAll('.w');
             for(let i=0;i<spans.length;i++){
               const d=spans[i].dataset;
               if(d.a==='1')continue;
@@ -605,7 +628,7 @@ class BrowserServer {
 
           // Color each word to match native WordFlowLayout
           scrollTgt=null;
-          const spans=c.children;
+          const spans=c.querySelectorAll('.w');
           for(let i=0;i<spans.length;i++){
             const sp=spans[i],d=sp.dataset;
             const charOff=parseInt(d.s),wLen=parseInt(d.l),lc=parseInt(d.lc);

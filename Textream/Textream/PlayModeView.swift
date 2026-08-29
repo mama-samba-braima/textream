@@ -105,12 +105,14 @@ struct PlayModeView: View {
     private func remoteStrip(url: String) -> some View {
         HStack(spacing: 10) {
             if let qr = RemoteConnection.qrCode(for: url) {
+                // Smoothed rather than nearest-neighbour: at these sizes the code is scaled by a
+                // fraction, and point sampling both biases it off centre and drops modules, which
+                // is the one thing a code being scanned cannot afford.
                 Image(nsImage: qr)
-                    .interpolation(.none)
                     .resizable()
                     .scaledToFit()
                     .frame(width: qrSize, height: qrSize)
-                    .padding(3)
+                    .frame(width: qrSize + 8, height: qrSize + 8)
                     .background(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
