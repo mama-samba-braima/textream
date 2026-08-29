@@ -123,9 +123,11 @@ struct ExternalLensMetrics {
     /// Screen-corner inset for the elapsed timer, which sits outside the lens padding.
     static let timerInset = CGSize(width: 40, height: 20)
     /// Point size of the elapsed timer on the external display.
-    static let timerFontSize: CGFloat = 24
-    /// Height of the full-width progress meter along the bottom edge.
-    static let progressHeight: CGFloat = 30
+    static let timerFontSize: CGFloat = 44
+    /// Height of the progress bar along the bottom edge.
+    static let progressHeight: CGFloat = 26
+    /// Gap between that bar and the edges of the screen.
+    static let progressInset: CGFloat = 26
 
     init(screenSize: CGSize, paddingH: Double, paddingV: Double) {
         let clampedH = min(max(paddingH, 0), NotchSettings.maxExternalPadding)
@@ -154,9 +156,6 @@ struct ExternalDisplayView: View {
     /// The meter along the bottom edge. Off when this view is being mirrored into the app window,
     /// which has a progress bar of its own and does not need two.
     var showsMeter: Bool = true
-    /// The mic toggle. Off when mirrored, where it belongs with the other transport controls
-    /// rather than floating in the corner of a picture of a screen.
-    var showsMic: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -240,7 +239,7 @@ struct ExternalDisplayView: View {
             if NotchSettings.shared.showElapsedTime {
                 // Deliberately outside the lens padding: the timer belongs in the corner of the
                 // screen, not in the band the talent is reading from.
-                ElapsedTimeView(fontSize: 24)
+                ElapsedTimeView(fontSize: ExternalLensMetrics.timerFontSize)
                     .padding(.top, ExternalLensMetrics.timerInset.height)
                     .padding(.leading, ExternalLensMetrics.timerInset.width)
             }
@@ -312,13 +311,6 @@ struct ExternalDisplayView: View {
                 // Everything below sits outside the lens padding, on the black the talent
                 // cannot see through the glass, where it has room to be read at a glance.
 
-                if listeningMode != .classic && showsMic {
-                    micToggle
-                        .padding(.top, ExternalLensMetrics.timerInset.height)
-                        .padding(.trailing, ExternalLensMetrics.timerInset.width)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                }
-
                 if listeningMode == .wordTracking {
                     Text(speechRecognizer.lastSpokenText.split(separator: " ").suffix(6).joined(separator: " "))
                         .font(.system(size: 20, weight: .medium))
@@ -331,42 +323,26 @@ struct ExternalDisplayView: View {
                 }
 
                 if showsMeter {
-                    AudioWaveformProgressView(
-                        levels: speechRecognizer.audioLevels,
-                        progress: totalCharCount > 0
-                            ? Double(effectiveCharCount) / Double(totalCharCount)
-                            : 0,
-                        adaptive: true
-                    )
+                    // The same shape as the app's stepper, so a glance at either screen reads the
+                    // same way.
+                    GeometryReader { bar in
+                        let progress = totalCharCount > 0
+                            ? min(1, max(0, Double(effectiveCharCount) / Double(totalCharCount)))
+                            : 0
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.12))
+                            Capsule()
+                                .fill(Color.accentColor)
+                                .frame(width: max(ExternalLensMetrics.progressHeight, bar.size.width * progress))
+                        }
+                    }
                     .frame(height: ExternalLensMetrics.progressHeight)
+                    .padding(.horizontal, ExternalLensMetrics.progressInset)
+                    .padding(.bottom, ExternalLensMetrics.progressInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
             }
         }
-    }
-
-    private var micToggle: some View {
-        Button {
-            if speechRecognizer.isListening {
-                speechRecognizer.stop()
-            } else {
-                speechRecognizer.resume()
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.15))
-                // Resizable rather than font-sized: a font-sized SF Symbol aligns on the text
-                // baseline, which leaves it sitting high and left of the circle's centre.
-                Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.4))
-                    .frame(width: 22, height: 22)
-            }
-            .frame(width: 48, height: 48)
-        }
-        .buttonStyle(.plain)
     }
 
     private var doneView: some View {
