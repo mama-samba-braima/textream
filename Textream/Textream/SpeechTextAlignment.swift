@@ -76,6 +76,34 @@ enum SpeechTextAlignment {
         return current
     }
 
+    /// The mirror image of `advancePastAnnotations`, for a read being moved backwards.
+    ///
+    /// Going back has to land *before* a cue rather than after it. Skipping forward on the way
+    /// back is what makes a long cue impossible to reverse past: every attempt to step back into
+    /// it is pushed out the far end, onto the position the read was already at.
+    static func retreatPastAnnotations(
+        in text: String,
+        ranges: [Range<Int>],
+        from offset: Int
+    ) -> Int {
+        let characters = Array(text)
+        var current = max(0, min(offset, characters.count))
+
+        while current > 0 {
+            // Inside a cue, or sitting exactly at its closing bracket: either way the words
+            // that have to come back on screen are the ones in front of it.
+            guard let range = ranges.first(where: { $0.contains(current) || $0.upperBound == current })
+            else { return current }
+
+            current = range.lowerBound
+            // And not in the gap before it either, which reads as part of the cue.
+            while current > 0 && characters[current - 1].isWhitespace {
+                current -= 1
+            }
+        }
+        return 0
+    }
+
     /// Combine the character-level and word-level match results into a single
     /// forward offset. When they roughly agree, average them. When they
     /// disagree, prefer the further match: the word-level scan advances

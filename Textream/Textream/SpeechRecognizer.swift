@@ -152,7 +152,16 @@ class SpeechRecognizer {
     /// forever.
     func jumpTo(charOffset: Int) {
         let clampedOffset = max(0, min(charOffset, sourceText.count))
-        let targetOffset = advancePastAnnotations(from: clampedOffset)
+        // Which way the jump goes decides which way the cues are stepped over. Always skipping
+        // forward is what leaves a long cue impossible to reverse past: each step back lands in
+        // it and is pushed out the far end, back where the read already was.
+        let targetOffset = clampedOffset < recognizedCharCount
+            ? SpeechTextAlignment.retreatPastAnnotations(
+                in: sourceText,
+                ranges: annotationRanges,
+                from: clampedOffset
+              )
+            : advancePastAnnotations(from: clampedOffset)
         let distance = abs(targetOffset - recognizedCharCount)
         recognizedCharCount = targetOffset
         matchStartOffset = targetOffset
