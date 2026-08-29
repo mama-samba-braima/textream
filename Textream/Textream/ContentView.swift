@@ -364,6 +364,7 @@ Happy presenting! [wave]
                         HStack(spacing: 10) {
                             Spacer()
 
+                            if !isRunning {
                             Button {
                                 if isRecording {
                                     stopRecording()
@@ -388,8 +389,7 @@ Happy presenting! [wave]
                                 .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
                             }
                             .buttonStyle(.plain)
-                            .disabled(isRunning)
-                            .opacity(isRunning ? 0.4 : 1)
+                            }
 
                             Button {
                                 if isRunning {

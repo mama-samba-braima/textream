@@ -29,6 +29,8 @@ struct PlayModeView: View {
     private static let nudgeWords = 5
 
     @ObservedObject private var service = TextreamService.shared
+    /// Which chip the strip is parked on. Scrolling the bar never moves the read.
+    @State private var scrollAnchor: Int = 0
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -99,23 +101,59 @@ struct PlayModeView: View {
     /// glance.
     private var sectionBar: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(service.sections) { section in
-                        sectionChip(section)
-                            .id(section.id)
+            HStack(spacing: 0) {
+                scrollArrow(systemImage: "chevron.left", step: -1, proxy: proxy)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(service.sections) { section in
+                            sectionChip(section)
+                                .id(section.id)
+                        }
                     }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 7)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+
+                scrollArrow(systemImage: "chevron.right", step: 1, proxy: proxy)
             }
-            .background(.bar)
+            .background(Color.black)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(height: 1)
+            }
+            .onAppear { scrollAnchor = service.currentSectionIndex }
             .onChange(of: service.currentSectionIndex) { _, index in
+                scrollAnchor = index
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(index, anchor: .center)
                 }
             }
         }
+    }
+
+    /// Walks the strip without moving the read, for reaching a section that is off screen.
+    private func scrollArrow(systemImage: String, step: Int, proxy: ScrollViewProxy) -> some View {
+        let target = scrollAnchor + step
+        let enabled = service.sections.indices.contains(target)
+
+        return Button {
+            guard service.sections.indices.contains(scrollAnchor + step) else { return }
+            scrollAnchor += step
+            withAnimation(.easeInOut(duration: 0.2)) {
+                proxy.scrollTo(scrollAnchor, anchor: .center)
+            }
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(enabled ? 0.75 : 0.2))
+                .frame(width: 24, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(step > 0 ? "Scroll to later sections" : "Scroll to earlier sections")
     }
 
     private func sectionChip(_ section: ScriptSection) -> some View {
@@ -135,10 +173,10 @@ struct PlayModeView: View {
                     .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                     .lineLimit(1)
             }
-            .foregroundStyle(isCurrent ? Color.white : Color.primary.opacity(0.75))
+            .foregroundStyle(isCurrent ? Color.white : Color.white.opacity(0.7))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(isCurrent ? Color.accentColor : Color.primary.opacity(0.08))
+            .background(isCurrent ? Color.accentColor : Color.white.opacity(0.12))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
