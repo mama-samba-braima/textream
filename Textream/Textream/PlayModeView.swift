@@ -34,7 +34,9 @@ struct PlayModeView: View {
     @ObservedObject private var service = TextreamService.shared
     /// Which chip the strip is parked on. Scrolling the bar never moves the read.
     @State private var scrollAnchor: Int = 0
-    @State private var qrEnlarged = true
+    /// Starts small: the code only needs to be big while someone is walking over to scan it,
+    /// and every point it takes is a point of script the operator cannot see.
+    @State private var qrEnlarged = false
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
