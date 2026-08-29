@@ -250,24 +250,42 @@ struct PlayModeView: View {
 
     private var mirror: some View {
         GeometryReader { geo in
-            let native = nativeSize
-            // Scaling up a small overlay past 2x only softens it, so cap the enlargement.
-            let scale = min(min(geo.size.width / native.width, geo.size.height / native.height), 2.0)
+            let surfaceSize = nativeSize
+            // Width is matched exactly, since band width and font size decide where lines wrap and
+            // the mirror is worthless if it wraps differently from the monitor. Height is stretched
+            // to whatever the pane offers, which is free look-ahead: the same read, more of the
+            // script visible than the monitor can show.
+            let widthScale = min(geo.size.width / surfaceSize.width, 2.5)
+            // Stretch only when the pane is taller than the surface. In a short pane, matching the
+            // width would crop the monitor's own top and bottom away, so fit instead.
+            let canStretch = geo.size.height / widthScale >= surfaceSize.height
+            let scale = canStretch ? widthScale : min(widthScale, geo.size.height / surfaceSize.height)
+            let virtualHeight = max(surfaceSize.height, geo.size.height / scale)
+            // Where the monitor's own top and bottom edges fall in the stretched view
+            let overhang = (virtualHeight - surfaceSize.height) / 2 * scale
 
             ZStack {
                 Color.black
 
                 surface
-                    .frame(width: native.width, height: native.height)
+                    .frame(width: surfaceSize.width, height: virtualHeight)
                     .scaleEffect(scale, anchor: .center)
-                    .frame(width: native.width * scale, height: native.height * scale)
+                    .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    // The prompter's ground is black and so is the pane, so without this the
-                    // edges of the monitor being mirrored are invisible.
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(.white.opacity(0.14), lineWidth: 1)
-                    )
+                    // The stretched view shows more than the monitor does, so mark where the
+                    // monitor actually ends. Outside these lines is look-ahead, not on air.
+                    .overlay(alignment: .top) {
+                        if overhang > 6 {
+                            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
+                                .padding(.top, overhang)
+                        }
+                    }
+                    .overlay(alignment: .bottom) {
+                        if overhang > 6 {
+                            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
+                                .padding(.bottom, overhang)
+                        }
+                    }
 
                 nudgeControls
                 expandControl
