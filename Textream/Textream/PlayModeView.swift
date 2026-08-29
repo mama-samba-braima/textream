@@ -27,6 +27,8 @@ struct PlayModeView: View {
     /// Ends the read. Lives here so it sits centred on the mirror in both layouts, rather than on
     /// the divider between the script and the mirror.
     var onStop: (() -> Void)? = nil
+    /// Reports the word being read, so the script can follow along beside the mirror.
+    var onWordIndexChange: ((Int) -> Void)? = nil
 
     /// Words a single arrow press moves the read by.
     private static let nudgeWords = 5
@@ -65,6 +67,11 @@ struct PlayModeView: View {
         case .classic, .silencePaused:
             return charOffsetForWordProgress(timerWordProgress)
         }
+    }
+
+    /// The word the read is on, which is what the script pane follows.
+    private var currentWordIndex: Int {
+        max(0, Int(wordProgressForCharOffset(effectiveCharCount)))
     }
 
     private func charOffsetForWordProgress(_ progress: Double) -> Int {
@@ -301,6 +308,9 @@ struct PlayModeView: View {
         }
         .onChange(of: content.seekToken) { _, _ in
             timerWordProgress = wordProgressForCharOffset(content.seekCharOffset)
+        }
+        .onChange(of: currentWordIndex) { _, index in
+            onWordIndexChange?(index)
         }
         .onReceive(scrollTimer) { _ in
             // A shadow of the prompter's own timer, kept only so the arrows know where the read

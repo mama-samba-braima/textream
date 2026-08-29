@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var mirrorExpanded = false
     @State private var selectedPageIDs: Set<UUID> = []
     @State private var pendingDeleteIDs: [UUID] = []
+    /// The word being read, pointed at in the script pane while a read is running.
+    @State private var followRange: NSRange?
     @State private var languageSuggestion: SpeechLanguageSuggestion?
     @State private var ignoredLanguageIdentifier: String?
     @State private var languageDetectionTask: Task<Void, Never>?
@@ -281,6 +283,7 @@ Happy presenting! [wave]
             text: currentText,
             font: .systemFont(ofSize: 16, weight: .regular).rounded,
             highlightRange: dictationHighlightRange,
+            followRange: isRunning ? followRange : nil,
             caretPosition: $dictationCaretPosition,
             editorCaretPosition: $editorCaretPosition
         )
@@ -308,7 +311,10 @@ Happy presenting! [wave]
                     mirrorExpanded.toggle()
                 }
             },
-            onStop: { stop() }
+            onStop: { stop() },
+            onWordIndexChange: { index in
+                followRange = service.editorRange(forWordIndex: index)
+            }
         )
     }
 
@@ -1225,6 +1231,7 @@ Happy presenting! [wave]
     }
 
     private func stop() {
+        followRange = nil
         service.overlayController.dismiss()
         service.readPages.removeAll()
         isRunning = false

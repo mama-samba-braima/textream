@@ -137,6 +137,8 @@ class TextreamService: NSObject, ObservableObject {
     @Published var sections: [ScriptSection] = []
     @Published var currentSectionIndex: Int = 0
     @Published var readSections: Set<Int> = []
+    /// Word ranges for a page with no headings, recomputed only when the text changes.
+    private var cachedPlainWordRanges: (text: String, ranges: [NSRange])?
 
     var hasNextPage: Bool {
         for i in (currentPageIndex + 1)..<pages.count {
@@ -342,6 +344,23 @@ class TextreamService: NSObject, ObservableObject {
             return sections[currentSectionIndex].body
         }
         return MarkdownScript.plainText(from: currentPageText)
+    }
+
+    /// Where the word at `index` of the current read sits in the page text, so the editor can
+    /// follow along. Nil when the script and the read cannot be lined up word for word.
+    func editorRange(forWordIndex index: Int) -> NSRange? {
+        let ranges: [NSRange]
+        if sections.indices.contains(currentSectionIndex) {
+            ranges = sections[currentSectionIndex].wordRanges
+        } else {
+            let text = currentPageText
+            if cachedPlainWordRanges?.text != text {
+                cachedPlainWordRanges = (text, MarkdownScript.wordRanges(in: text))
+            }
+            ranges = cachedPlainWordRanges?.ranges ?? []
+        }
+        guard ranges.indices.contains(index) else { return nil }
+        return ranges[index]
     }
 
     var hasNextSection: Bool {

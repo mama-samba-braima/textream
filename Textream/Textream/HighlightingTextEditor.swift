@@ -21,6 +21,9 @@ struct HighlightingTextEditor: NSViewRepresentable {
     var isFocused: FocusState<Bool>.Binding?
     /// Range of newly dictated text to highlight with a bump effect
     var highlightRange: NSRange? = nil
+    /// The word currently being read, highlighted and scrolled to so the script follows the
+    /// prompter. Unlike the caret, this never changes the selection.
+    var followRange: NSRange? = nil
     /// One-shot: set caret to this position, then nilled out
     @Binding var caretPosition: Int?
     /// Continuously reported current caret position in the editor
@@ -80,6 +83,12 @@ struct HighlightingTextEditor: NSViewRepresentable {
             context.coordinator.applyBumpHighlight(textView, range: range)
         }
 
+        if let range = followRange, range.location + range.length <= textView.string.count {
+            context.coordinator.applyFollowHighlight(textView, range: range)
+        } else if followRange == nil {
+            context.coordinator.clearFollowHighlight(textView)
+        }
+
         // Move caret to requested position (one-shot)
         if let pos = caretPosition, pos <= textView.string.count {
             let caretRange = NSRange(location: pos, length: 0)
@@ -137,6 +146,31 @@ struct HighlightingTextEditor: NSViewRepresentable {
                 guard let self, let textView else { return }
                 self.applyHighlighting(textView)
             }
+        }
+
+        var lastFollowRange: NSRange?
+
+        func applyFollowHighlight(_ textView: NSTextView, range: NSRange) {
+            guard range != lastFollowRange, let textStorage = textView.textStorage else { return }
+            lastFollowRange = range
+            applyHighlighting(textView)
+            textStorage.beginEditing()
+            textStorage.addAttribute(
+                .backgroundColor,
+                value: NSColor.controlAccentColor.withAlphaComponent(0.3),
+                range: range
+            )
+            textStorage.endEditing()
+            // Never yank the view out from under someone who is typing in it.
+            if textView.window?.firstResponder !== textView {
+                textView.scrollRangeToVisible(range)
+            }
+        }
+
+        func clearFollowHighlight(_ textView: NSTextView) {
+            guard lastFollowRange != nil else { return }
+            lastFollowRange = nil
+            applyHighlighting(textView)
         }
 
         func applyHighlighting(_ textView: NSTextView) {
