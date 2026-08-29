@@ -280,6 +280,20 @@ Happy presenting! [wave]
             }
 
             ZStack {
+                // Mid-read the editor is useless, so it gives way to a mirror of what the
+                // talent is looking at, which doubles as a control surface.
+                if isRunning {
+                    PlayModeView(
+                        content: service.overlayController.overlayContent,
+                        speechRecognizer: service.overlayController.speechRecognizer,
+                        onScrub: { service.scrub(toCharOffset: $0) },
+                        onSeek: { service.seek(toCharOffset: $0) }
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+                } else {
                 HighlightingTextEditor(
                     text: currentText,
                     font: .systemFont(ofSize: 16, weight: .regular).rounded,
@@ -310,6 +324,7 @@ Happy presenting! [wave]
                         endPoint: .bottom
                     )
                 )
+                }
 
                 // Bottom bar
                 VStack {
