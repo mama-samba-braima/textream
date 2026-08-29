@@ -152,12 +152,22 @@ class TextreamService: NSObject, ObservableObject {
         return pages[currentPageIndex]
     }
 
-    func readText(_ text: String) {
+    /// Starts a read.
+    ///
+    /// `fromExternalSource` marks a read handed to the app from outside, by the Services menu or a
+    /// textream:// URL, where there is no document window to work in and the app should get out of
+    /// the way. A read started from the app's own window is the opposite case: the window is the
+    /// operator's monitor and control surface, so it stays up and in front.
+    func readText(_ text: String, fromExternalSource: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        launchedExternally = true
-        hideMainWindow()
+        if fromExternalSource {
+            launchedExternally = true
+            hideMainWindow()
+        } else {
+            keepMainWindowInFront()
+        }
 
         overlayController.show(text: trimmed, hasNextPage: hasNextChunk) { [weak self] in
             self?.externalDisplayController.dismiss()
@@ -297,6 +307,16 @@ class TextreamService: NSObject, ObservableObject {
         readPages.removeAll()
         currentPageIndex = 0
         readCurrentPage()
+    }
+
+    /// Keeps the document window up and frontmost when a read starts from it. The overlay panels
+    /// are non-activating, so the window stays key and the mirror stays watchable.
+    func keepMainWindowInFront() {
+        DispatchQueue.main.async {
+            guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeMain }) else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     func hideMainWindow() {
@@ -1102,7 +1122,7 @@ class TextreamService: NSObject, ObservableObject {
             error.pointee = "No text found on pasteboard" as NSString
             return
         }
-        readText(text)
+        readText(text, fromExternalSource: true)
     }
 
     // URL scheme handler: textream://read?text=Hello%20World
@@ -1112,7 +1132,7 @@ class TextreamService: NSObject, ObservableObject {
         if url.host == "read" || url.path == "/read" {
             if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                let textParam = components.queryItems?.first(where: { $0.name == "text" })?.value {
-                readText(textParam)
+                readText(textParam, fromExternalSource: true)
             }
         }
     }
