@@ -104,6 +104,7 @@ struct PlayModeView: View {
     /// looking rather than buried in Settings. Only appears while the remote server is running.
     private func remoteStrip(url: String) -> some View {
         HStack(spacing: 10) {
+            Spacer(minLength: 0)
             if let qr = RemoteConnection.qrCode(for: url) {
                 // Smoothed rather than nearest-neighbour: at these sizes the code is scaled by a
                 // fraction, and point sampling both biases it off centre and drops modules, which
@@ -129,7 +130,8 @@ struct PlayModeView: View {
             }
 
             Spacer(minLength: 0)
-
+        }
+        .overlay(alignment: .trailing) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     qrEnlarged.toggle()
@@ -143,6 +145,7 @@ struct PlayModeView: View {
             }
             .buttonStyle(.plain)
             .help(qrEnlarged ? "Shrink the code" : "Enlarge the code to scan from further away")
+            .padding(.trailing, 12)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

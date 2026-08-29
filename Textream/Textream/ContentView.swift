@@ -379,7 +379,9 @@ Happy presenting! [wave]
                                             .tint(.white)
                                     } else {
                                         Image(systemName: isRecording ? "pause.fill" : "mic.fill")
-                                            .font(.system(size: 16, weight: .semibold))
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 16, height: 16)
                                     }
                                 }
                                 .foregroundStyle(.white)
@@ -398,13 +400,22 @@ Happy presenting! [wave]
                                     run()
                                 }
                             } label: {
-                                Image(systemName: isRunning ? "stop.fill" : "play.fill")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(isRunning ? Color.red : Color.accentColor)
-                                    .clipShape(Circle())
-                                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                                ZStack {
+                                    Circle()
+                                        .fill(isRunning ? Color.red : Color.accentColor)
+                                    // Resizable rather than font-sized: a font-sized SF Symbol
+                                    // aligns on the text baseline, which leaves it off centre.
+                                    Image(systemName: isRunning ? "stop.fill" : "play.fill")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .foregroundStyle(.white)
+                                        .frame(width: 16, height: 16)
+                                        // A triangle's mass sits left of its bounding box, so it
+                                        // needs a nudge to look centred in a circle.
+                                        .offset(x: isRunning ? 0 : 1.5)
+                                }
+                                .frame(width: 44, height: 44)
+                                .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
                             }
                             .buttonStyle(.plain)
                             .disabled((!isRunning && !hasAnyContent) || isRecording)
