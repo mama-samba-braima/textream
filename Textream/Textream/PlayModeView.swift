@@ -405,7 +405,8 @@ struct PlayModeView: View {
                 content: TextreamService.shared.externalDisplayController.overlayContent,
                 speechRecognizer: speechRecognizer,
                 mirrorAxis: nil,
-                showsMeter: false
+                showsMeter: false,
+                showsMic: false
             )
         } else {
             FloatingOverlayView(
@@ -491,6 +492,25 @@ struct PlayModeView: View {
                     help: "Stop the read",
                     action: onStop
                 )
+
+                if listeningMode != .classic {
+                    circleButton(
+                        systemImage: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill",
+                        diameter: 38,
+                        glyph: 15,
+                        fill: Color.white.opacity(0.15),
+                        tint: speechRecognizer.isListening ? .yellow.opacity(0.9) : .white.opacity(0.45),
+                        help: speechRecognizer.isListening ? "Stop listening" : "Start listening",
+                        action: {
+                            if speechRecognizer.isListening {
+                                speechRecognizer.stop()
+                            } else {
+                                speechRecognizer.resume()
+                            }
+                        }
+                    )
+                    .offset(x: 53)
+                }
             }
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

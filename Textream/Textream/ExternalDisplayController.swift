@@ -154,6 +154,9 @@ struct ExternalDisplayView: View {
     /// The meter along the bottom edge. Off when this view is being mirrored into the app window,
     /// which has a progress bar of its own and does not need two.
     var showsMeter: Bool = true
+    /// The mic toggle. Off when mirrored, where it belongs with the other transport controls
+    /// rather than floating in the corner of a picture of a screen.
+    var showsMic: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -309,7 +312,7 @@ struct ExternalDisplayView: View {
                 // Everything below sits outside the lens padding, on the black the talent
                 // cannot see through the glass, where it has room to be read at a glance.
 
-                if listeningMode != .classic {
+                if listeningMode != .classic && showsMic {
                     micToggle
                         .padding(.top, ExternalLensMetrics.timerInset.height)
                         .padding(.trailing, ExternalLensMetrics.timerInset.width)
