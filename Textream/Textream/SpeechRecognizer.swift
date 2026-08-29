@@ -189,6 +189,20 @@ class SpeechRecognizer {
         requestMicrophoneAccessAndBegin(for: sessionGeneration)
     }
 
+    /// Swaps the script being matched against without touching the live audio session, so a line
+    /// can be fixed mid-read without restarting recognition. The read position is kept, clamped
+    /// to the new text.
+    func updateScript(_ text: String) {
+        let collapsed = splitTextIntoWords(text).joined(separator: " ")
+        guard collapsed != sourceText else { return }
+        sourceText = collapsed
+        normalizedSource = Self.normalize(collapsed)
+        annotationRanges = SpeechTextAlignment.annotationRanges(in: collapsed)
+        recognizedCharCount = min(recognizedCharCount, collapsed.count)
+        matchStartOffset = min(matchStartOffset, collapsed.count)
+        recentMatchPositions = recentMatchPositions.filter { $0 <= collapsed.count }
+    }
+
     private func requestMicrophoneAccessAndBegin(for generation: Int) {
         guard shouldListen, sessionGeneration == generation else { return }
 

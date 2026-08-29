@@ -23,6 +23,9 @@ struct ContentView: View {
     @State private var showAbout = false
     @State private var renamingFolderID: UUID?
     @State private var folderNameDraft: String = ""
+    /// Play mode starts split, script on the left and the mirror on the right, and can be
+    /// expanded to the mirror alone.
+    @State private var mirrorExpanded = false
     @State private var selectedPageIDs: Set<UUID> = []
     @State private var pendingDeleteIDs: [UUID] = []
     @State private var languageSuggestion: SpeechLanguageSuggestion?
@@ -272,6 +275,42 @@ Happy presenting! [wave]
         dictation.onNewSegment = nil
     }
 
+    /// The script editor, shared by the idle layout and the split play-mode layout.
+    private var scriptEditor: some View {
+        HighlightingTextEditor(
+            text: currentText,
+            font: .systemFont(ofSize: 16, weight: .regular).rounded,
+            highlightRange: dictationHighlightRange,
+            caretPosition: $dictationCaretPosition,
+            editorCaretPosition: $editorCaretPosition
+        )
+        .onChange(of: editorCaretPosition) { _, newPos in
+            guard isRecording else { return }
+            let segmentEnd = segmentStart + segmentLength
+            if newPos != segmentEnd {
+                beginNewSegment()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+    }
+
+    private var playMirror: some View {
+        PlayModeView(
+            content: service.overlayController.overlayContent,
+            speechRecognizer: service.overlayController.speechRecognizer,
+            isExpanded: mirrorExpanded,
+            onScrub: { service.scrub(toCharOffset: $0) },
+            onSeek: { service.seek(toCharOffset: $0) },
+            onToggleExpand: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    mirrorExpanded.toggle()
+                }
+            }
+        )
+    }
+
     private var mainContent: some View {
         VStack(spacing: 0) {
             if let languageSuggestion {
@@ -283,32 +322,20 @@ Happy presenting! [wave]
                 // Mid-read the editor is useless, so it gives way to a mirror of what the
                 // talent is looking at, which doubles as a control surface.
                 if isRunning {
-                    PlayModeView(
-                        content: service.overlayController.overlayContent,
-                        speechRecognizer: service.overlayController.speechRecognizer,
-                        onScrub: { service.scrub(toCharOffset: $0) },
-                        onSeek: { service.seek(toCharOffset: $0) }
-                    )
-                    .transition(.opacity)
-                } else {
-                HighlightingTextEditor(
-                    text: currentText,
-                    font: .systemFont(ofSize: 16, weight: .regular).rounded,
-                    highlightRange: dictationHighlightRange,
-                    caretPosition: $dictationCaretPosition,
-                    editorCaretPosition: $editorCaretPosition
-                )
-                .onChange(of: editorCaretPosition) { _, newPos in
-                    guard isRecording else { return }
-                    // If caret moved away from end of current segment, user clicked elsewhere
-                    let segmentEnd = segmentStart + segmentLength
-                    if newPos != segmentEnd {
-                        beginNewSegment()
+                    if mirrorExpanded {
+                        playMirror
+                            .transition(.opacity)
+                    } else {
+                        HSplitView {
+                            scriptEditor
+                                .frame(minWidth: 260)
+                            playMirror
+                                .frame(minWidth: 300)
+                        }
+                        .transition(.opacity)
                     }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
+                } else {
+                scriptEditor
                 .mask(
                     LinearGradient(
                         stops: [
@@ -610,6 +637,12 @@ Happy presenting! [wave]
         }
         .sheet(isPresented: $showAbout) {
             AboutView()
+        }
+        .onChange(of: service.currentPageText) { _, _ in
+            // Edits made in the split view reach the prompter, the external display and the
+            // remote straight away, without restarting the read.
+            guard isRunning else { return }
+            service.refreshLiveScript()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
             showSettings = true

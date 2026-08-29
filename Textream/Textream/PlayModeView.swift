@@ -17,10 +17,13 @@ import SwiftUI
 struct PlayModeView: View {
     @Bindable var content: OverlayContent
     @Bindable var speechRecognizer: SpeechRecognizer
+    /// True when the mirror has the whole pane, false when it shares it with the script.
+    var isExpanded: Bool = false
     /// Live position while dragging. Every surface follows, the recognizer is left alone.
     let onScrub: (Int) -> Void
     /// Settled position. The read resumes from here.
     let onSeek: (Int) -> Void
+    var onToggleExpand: (() -> Void)? = nil
 
     /// Words a single arrow press moves the read by.
     private static let nudgeWords = 5
@@ -103,6 +106,7 @@ struct PlayModeView: View {
                     )
 
                 nudgeControls
+                expandControl
             }
         }
         .background(Color.black)
@@ -169,6 +173,27 @@ struct PlayModeView: View {
             width: NotchSettings.shared.notchWidth,
             height: NotchSettings.shared.textAreaHeight
         )
+    }
+
+    @ViewBuilder
+    private var expandControl: some View {
+        if let onToggleExpand {
+            Button(action: onToggleExpand) {
+                Image(systemName: isExpanded
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 28, height: 28)
+                    .background(.white.opacity(0.15))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Show the script alongside" : "Fill the pane with the mirror")
+            .padding(.trailing, 12)
+            .padding(.top, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
     }
 
     private var nudgeControls: some View {

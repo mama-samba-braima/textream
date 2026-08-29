@@ -66,6 +66,38 @@ private struct TextreamDocument: Codable {
     }
 }
 
+/// Everything needed to reopen exactly where the last session left off.
+///
+/// Written continuously to ~/.textream so that quitting, crashing or replacing the app never
+/// costs work. Saving to a .textream file stays a separate, deliberate act.
+private struct SessionSnapshot: Codable {
+    var version: Int = 1
+    var pages: [String]
+    var pageIDs: [UUID]
+    var folders: [PageFolder]
+    var pinnedPageIDs: [UUID]
+    var currentPageIndex: Int
+
+    init(pages: [String], pageIDs: [UUID], folders: [PageFolder], pinnedPageIDs: [UUID], currentPageIndex: Int) {
+        self.pages = pages
+        self.pageIDs = pageIDs
+        self.folders = folders
+        self.pinnedPageIDs = pinnedPageIDs
+        self.currentPageIndex = currentPageIndex
+    }
+
+    // Field by field, so a snapshot written by an older build still restores.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        pages = try container.decode([String].self, forKey: .pages)
+        pageIDs = try container.decodeIfPresent([UUID].self, forKey: .pageIDs) ?? []
+        folders = try container.decodeIfPresent([PageFolder].self, forKey: .folders) ?? []
+        pinnedPageIDs = try container.decodeIfPresent([UUID].self, forKey: .pinnedPageIDs) ?? []
+        currentPageIndex = try container.decodeIfPresent(Int.self, forKey: .currentPageIndex) ?? 0
+    }
+}
+
 class TextreamService: NSObject, ObservableObject {
     static let shared = TextreamService()
     let overlayController = NotchOverlayController()
@@ -75,6 +107,17 @@ class TextreamService: NSObject, ObservableObject {
     var onOverlayDismissed: (() -> Void)?
     var launchedExternally = false
     @Published var directorIsReading = false
+
+    override init() {
+        super.init()
+        restoreSession()
+        startAutosave()
+        // Establish the file on first launch, so its absence always means a real problem
+        // rather than "nothing has changed yet".
+        DispatchQueue.main.async { [weak self] in
+            self?.saveSession()
+        }
+    }
 
     @Published var pages: [String] = [""]
     /// Stable identity per page, parallel to `pages`. Folders reference pages by ID so that
@@ -537,6 +580,102 @@ class TextreamService: NSObject, ObservableObject {
 
     private func pinnedFirst(_ ids: [UUID]) -> [UUID] {
         ids.filter { pinnedPageIDs.contains($0) } + ids.filter { !pinnedPageIDs.contains($0) }
+    }
+
+    /// Pushes an edit made during a read to every surface, keeping the read position.
+    /// The prompter, the external display and the phone remote all follow the new text.
+    func refreshLiveScript() {
+        guard overlayController.isShowing else { return }
+        let text = currentPageText
+
+        for content in [overlayController.overlayContent, externalDisplayController.overlayContent] {
+            content.apply(text: text)
+            content.hasNextPage = hasNextPage
+        }
+        overlayController.speechRecognizer.updateScript(text)
+
+        let words = splitTextIntoWords(text)
+        browserServer.updateContent(
+            words: words,
+            totalCharCount: words.joined(separator: " ").count,
+            hasNextPage: hasNextPage
+        )
+    }
+
+    // MARK: - Session Persistence
+
+    /// Autosave lives here. Under the sandbox this resolves inside the app container, which also
+    /// survives the app being replaced.
+    var sessionDirectory: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".textream", isDirectory: true)
+    }
+
+    var sessionFile: URL {
+        sessionDirectory.appendingPathComponent("session.json")
+    }
+
+    private var autosaveCancellable: AnyCancellable?
+    private var isRestoringSession = false
+
+    /// Writes on a delay after the last change, so typing costs one write rather than one per key.
+    private func startAutosave() {
+        // DispatchQueue rather than RunLoop: a run-loop scheduler stalls while a modal window or
+        // an open menu holds the main loop, which is exactly when a read is being set up.
+        autosaveCancellable = objectWillChange
+            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.saveSession()
+            }
+
+        // A debounce cannot help if the app is going away, so also write on the way out.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.saveSession()
+        }
+    }
+
+    func saveSession() {
+        guard !isRestoringSession else { return }
+        ensurePageIDs()
+        let snapshot = SessionSnapshot(
+            pages: pages,
+            pageIDs: pageIDs,
+            folders: folders,
+            pinnedPageIDs: Array(pinnedPageIDs),
+            currentPageIndex: currentPageIndex
+        )
+        do {
+            try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: sessionFile, options: .atomic)
+        } catch {
+            // Autosave is a convenience; a failure here must never interrupt a read.
+            NSLog("Textream: could not save session: \(error.localizedDescription)")
+        }
+    }
+
+    /// Restores the last session. A missing or unreadable file just leaves the defaults in place.
+    private func restoreSession() {
+        guard let data = try? Data(contentsOf: sessionFile),
+              let snapshot = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
+              !snapshot.pages.isEmpty else { return }
+
+        isRestoringSession = true
+        defer { isRestoringSession = false }
+
+        replacePages(
+            snapshot.pages,
+            ids: snapshot.pageIDs.count == snapshot.pages.count ? snapshot.pageIDs : nil,
+            folders: snapshot.folders,
+            pinned: Set(snapshot.pinnedPageIDs)
+        )
+        savedPages = snapshot.pages
+        if pages.indices.contains(snapshot.currentPageIndex) {
+            currentPageIndex = snapshot.currentPageIndex
+        }
     }
 
     // MARK: - File Operations
