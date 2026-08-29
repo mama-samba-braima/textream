@@ -407,6 +407,24 @@ class TextreamService: NSObject, ObservableObject {
         readSection(at: currentSectionIndex + 1)
     }
 
+    var hasPreviousSection: Bool {
+        !sections.isEmpty && currentSectionIndex > 0
+    }
+
+    func goToPreviousSection() {
+        guard hasPreviousSection else { return }
+        readSection(at: currentSectionIndex - 1)
+    }
+
+    /// Reads the current section again from its first word. The retake button.
+    func restartCurrentRead() {
+        if sections.indices.contains(currentSectionIndex) {
+            readSection(at: currentSectionIndex)
+        } else {
+            readCurrentPage()
+        }
+    }
+
     // MARK: - Page Organization
 
     /// Ordered page IDs in `folderID`, or the ungrouped pages when it is nil.

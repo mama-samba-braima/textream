@@ -371,7 +371,7 @@ struct PlayModeView: View {
         )
     }
 
-    /// Where the read stands, and the way on to the next section once this one is finished.
+    /// Where the read stands, and a retake. Moving between sections is the arrow keys' job.
     @ViewBuilder
     private var sectionFooter: some View {
         if !service.sections.isEmpty {
@@ -380,31 +380,49 @@ struct PlayModeView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
 
-                if service.hasNextSection {
-                    Button {
-                        service.advanceToNextSection()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text("Next Section")
-                                .font(.system(size: 11, weight: .semibold))
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.accentColor)
-                        .clipShape(Capsule())
+                Button {
+                    service.restartCurrentRead()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("Start Over")
+                            .font(.system(size: 11, weight: .semibold))
                     }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.rightArrow, modifiers: [])
-                    .help("Start the next section (→)")
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.white.opacity(0.15))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Read this section again from the top")
+
+                // Section stepping lives on the arrow keys. These carry the shortcuts without
+                // taking up room, since a shortcut has to hang off a button to be live.
+                sectionKey(.leftArrow, enabled: service.hasPreviousSection) {
+                    service.goToPreviousSection()
+                }
+                sectionKey(.rightArrow, enabled: service.hasNextSection) {
+                    service.advanceToNextSection()
                 }
             }
             .padding(.leading, 16)
             .padding(.bottom, 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
+    }
+
+    private func sectionKey(_ key: KeyEquivalent, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Color.clear.frame(width: 0, height: 0)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .keyboardShortcut(key, modifiers: [])
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
