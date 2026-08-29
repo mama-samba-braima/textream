@@ -1482,15 +1482,7 @@ struct SettingsView: View {
     // MARK: - QR Code
 
     private func generateQRCode(from string: String) -> NSImage? {
-        let context = CIContext()
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(string.utf8)
-        filter.correctionLevel = "M"
-        guard let ciImage = filter.outputImage else { return nil }
-        let scale = 10.0
-        let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-        return NSImage(cgImage: cgImage, size: NSSize(width: scaled.extent.width, height: scaled.extent.height))
+        RemoteConnection.qrCode(for: string)
     }
 
     // MARK: - Helpers
@@ -1560,8 +1552,6 @@ struct ExternalLensPreview: View {
     let paddingH: Double
     let paddingV: Double
 
-    /// Height reserved under the text for the waveform row (spacer + controls), in screen points.
-    private static let controlsBlock: CGFloat = 60
     /// Seconds for the sample text to travel its own height once.
     private static let loopDuration: Double = 9
 
@@ -1592,13 +1582,11 @@ struct ExternalLensPreview: View {
                 paddingV: paddingV
             )
             let hPad = lens.hPad * scale
-            let topPad = lens.vPad * scale
-            let bottomPad = max(lens.vPad, 24) * scale
-            let controls = Self.controlsBlock * scale
+            let vPad = lens.vPad * scale
             let font = max(5, lens.fontSize * scale)
             let lineHeight = font * 1.4
             let blockHeight = lineHeight * CGFloat(Self.sampleLines.count)
-            let bandHeight = max(lineHeight, geo.size.height - topPad - bottomPad - controls)
+            let bandHeight = max(lineHeight, geo.size.height - vPad * 2)
             let offset = phase * blockHeight
             // Enough copies stacked back to back to cover the band at any padding
             let copies = max(2, Int((bandHeight / blockHeight).rounded(.up)) + 1)
@@ -1630,17 +1618,9 @@ struct ExternalLensPreview: View {
                         )
                     )
 
-                    Spacer().frame(height: 20 * scale)
-
-                    Capsule()
-                        .fill(.white.opacity(0.25))
-                        .frame(width: 240 * scale, height: max(2, 8 * scale))
-                        .frame(height: 40 * scale, alignment: .center)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, hPad)
-                .padding(.top, topPad)
-                .padding(.bottom, bottomPad)
+                .padding(.vertical, vPad)
 
                 // The band the text is actually confined to
                 Rectangle()
@@ -1649,8 +1629,21 @@ struct ExternalLensPreview: View {
                         style: StrokeStyle(lineWidth: 1, dash: [4, 3])
                     )
                     .padding(.horizontal, hPad)
-                    .padding(.top, topPad)
-                    .padding(.bottom, bottomPad + controls)
+                    .padding(.vertical, vPad)
+
+                // The meter spans the bottom edge, outside the band
+                Rectangle()
+                    .fill(.white.opacity(0.22))
+                    .frame(height: max(2, ExternalLensMetrics.progressHeight * scale * 0.5))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
+                // Mic sits opposite the timer, also outside the band
+                Circle()
+                    .fill(.white.opacity(0.18))
+                    .frame(width: max(4, 48 * scale), height: max(4, 48 * scale))
+                    .padding(.top, ExternalLensMetrics.timerInset.height * scale)
+                    .padding(.trailing, ExternalLensMetrics.timerInset.width * scale)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
                 // Elapsed timer sits in the screen corner, outside the padding
                 if settings.showElapsedTime {

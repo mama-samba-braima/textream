@@ -124,6 +124,8 @@ struct ExternalLensMetrics {
     static let timerInset = CGSize(width: 40, height: 20)
     /// Point size of the elapsed timer on the external display.
     static let timerFontSize: CGFloat = 24
+    /// Height of the full-width progress meter along the bottom edge.
+    static let progressHeight: CGFloat = 30
 
     init(screenSize: CGSize, paddingH: Double, paddingV: Double) {
         let clampedH = min(max(paddingH, 0), NotchSettings.maxExternalPadding)
@@ -267,7 +269,8 @@ struct ExternalDisplayView: View {
         GeometryReader { geo in
             let lens = ExternalLensMetrics(screenSize: geo.size)
 
-            VStack(spacing: 0) {
+            ZStack {
+                // The script, confined to the lens band
                 SpeechScrollView(
                     words: words,
                     lineBreaks: lineBreaks,
@@ -297,53 +300,59 @@ struct ExternalDisplayView: View {
                     smoothWordProgress: timerWordProgress,
                     isListening: isEffectivelyListening
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, lens.hPad)
+                .padding(.vertical, lens.vPad)
 
-                Spacer().frame(height: 20)
+                // Everything below sits outside the lens padding, on the black the talent
+                // cannot see through the glass, where it has room to be read at a glance.
 
-                HStack(alignment: .center, spacing: 16) {
-                    AudioWaveformProgressView(
-                        levels: speechRecognizer.audioLevels,
-                        progress: totalCharCount > 0
-                            ? Double(effectiveCharCount) / Double(totalCharCount)
-                            : 0
-                    )
-                    .frame(width: 240, height: 32)
-
-                    if listeningMode == .wordTracking {
-                        Text(speechRecognizer.lastSpokenText.split(separator: " ").suffix(5).joined(separator: " "))
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                            .lineLimit(1)
-                            .truncationMode(.head)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Spacer()
-                    }
-
-                    if listeningMode != .classic {
-                        Button {
-                            if speechRecognizer.isListening {
-                                speechRecognizer.stop()
-                            } else {
-                                speechRecognizer.resume()
-                            }
-                        } label: {
-                            Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.4))
-                                .frame(width: 40, height: 40)
-                                .background(.white.opacity(0.15))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
+                if listeningMode != .classic {
+                    micToggle
+                        .padding(.top, ExternalLensMetrics.timerInset.height)
+                        .padding(.trailing, ExternalLensMetrics.timerInset.width)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
+
+                if listeningMode == .wordTracking {
+                    Text(speechRecognizer.lastSpokenText.split(separator: " ").suffix(6).joined(separator: " "))
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .padding(.leading, ExternalLensMetrics.timerInset.width)
+                        .padding(.bottom, ExternalLensMetrics.progressHeight + 14)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
+
+                AudioWaveformProgressView(
+                    levels: speechRecognizer.audioLevels,
+                    progress: totalCharCount > 0
+                        ? Double(effectiveCharCount) / Double(totalCharCount)
+                        : 0,
+                    adaptive: true
+                )
+                .frame(height: ExternalLensMetrics.progressHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
-            .padding(.horizontal, lens.hPad)
-            .padding(.top, lens.vPad)
-            .padding(.bottom, max(lens.vPad, 24))
         }
+    }
+
+    private var micToggle: some View {
+        Button {
+            if speechRecognizer.isListening {
+                speechRecognizer.stop()
+            } else {
+                speechRecognizer.resume()
+            }
+        } label: {
+            Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.4))
+                .frame(width: 48, height: 48)
+                .background(.white.opacity(0.15))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var doneView: some View {

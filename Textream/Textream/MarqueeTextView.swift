@@ -655,9 +655,26 @@ struct ElapsedTimeView: View {
 struct AudioWaveformProgressView: View {
     let levels: [CGFloat]
     let progress: Double // 0.0 to 1.0
+    /// Stretches the bars to fill the width given, rather than keeping them at a fixed 3pt.
+    /// Used where the meter spans a whole screen edge instead of sitting in a control row.
+    var adaptive: Bool = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2) {
+        if adaptive {
+            GeometryReader { geo in
+                let count = max(1, levels.count)
+                let spacing: CGFloat = 2
+                let barWidth = max(1, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
+                bars(width: barWidth, maxHeight: geo.size.height, spacing: spacing)
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
+        } else {
+            bars(width: 3, maxHeight: 28, spacing: 2)
+        }
+    }
+
+    private func bars(width: CGFloat, maxHeight: CGFloat, spacing: CGFloat) -> some View {
+        HStack(alignment: .center, spacing: spacing) {
             ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
                 let barProgress = Double(index) / Double(max(1, levels.count - 1))
                 let isLit = barProgress <= progress
@@ -667,7 +684,7 @@ struct AudioWaveformProgressView: View {
                           ? Color.yellow.opacity(0.9)
                           : Color.white.opacity(0.15)
                     )
-                    .frame(width: 3, height: max(3, level * 28))
+                    .frame(width: width, height: max(3, level * maxHeight))
                     .animation(.easeOut(duration: 0.08), value: level)
             }
         }

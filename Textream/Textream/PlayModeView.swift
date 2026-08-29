@@ -31,6 +31,7 @@ struct PlayModeView: View {
     @ObservedObject private var service = TextreamService.shared
     /// Which chip the strip is parked on. Scrolling the bar never moves the read.
     @State private var scrollAnchor: Int = 0
+    @State private var qrEnlarged = false
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -92,9 +93,66 @@ struct PlayModeView: View {
             if !service.sections.isEmpty {
                 sectionBar
             }
+            if let remoteURL = RemoteConnection.url {
+                remoteStrip(url: remoteURL)
+            }
             mirror
         }
     }
+
+    /// The address to scan to drive the prompter from a phone, kept where the operator is already
+    /// looking rather than buried in Settings. Only appears while the remote server is running.
+    private func remoteStrip(url: String) -> some View {
+        HStack(spacing: 10) {
+            if let qr = RemoteConnection.qrCode(for: url) {
+                Image(nsImage: qr)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: qrSize, height: qrSize)
+                    .padding(3)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Scan to control from your phone")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text(url)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    qrEnlarged.toggle()
+                }
+            } label: {
+                Image(systemName: qrEnlarged ? "minus.magnifyingglass" : "plus.magnifyingglass")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(qrEnlarged ? "Shrink the code" : "Enlarge the code to scan from further away")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.black)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(height: 1)
+        }
+    }
+
+    private var qrSize: CGFloat { qrEnlarged ? 96 : 44 }
 
     /// Every section of the script, in order, so the read can be started anywhere. The current one
     /// is marked, and sections already read are ticked, which is the whole state of a take at a
@@ -326,9 +384,11 @@ struct PlayModeView: View {
             }
             .buttonStyle(.plain)
             .help(isExpanded ? "Show the script alongside" : "Fill the pane with the mirror")
+            // Bottom right: the mirrored prompter puts its own timer top left and its mic top
+            // right, and this must not sit on top of either.
             .padding(.trailing, 12)
-            .padding(.top, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(.bottom, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
     }
 
