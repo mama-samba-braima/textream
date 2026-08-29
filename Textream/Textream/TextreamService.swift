@@ -363,6 +363,23 @@ class TextreamService: NSObject, ObservableObject {
         return ranges[index]
     }
 
+    /// Parsed sections for any page, for the sidebar outline. Cached per page so that redrawing
+    /// the sidebar does not re-parse every script on every keystroke.
+    private var outlineCache: [UUID: (text: String, sections: [ScriptSection])] = [:]
+
+    func outline(for pageID: UUID) -> [ScriptSection] {
+        let text = text(for: pageID)
+        if let cached = outlineCache[pageID], cached.text == text { return cached.sections }
+        let parsed = MarkdownScript.sections(from: text)
+        outlineCache[pageID] = (text, parsed)
+        return parsed
+    }
+
+    /// The name a page goes by in the sidebar: its Markdown `#` title when it has one.
+    func title(for pageID: UUID) -> String? {
+        MarkdownScript.documentTitle(from: text(for: pageID))
+    }
+
     var hasNextSection: Bool {
         !sections.isEmpty && currentSectionIndex + 1 < sections.count
     }

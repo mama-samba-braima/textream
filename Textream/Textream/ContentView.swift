@@ -27,6 +27,10 @@ struct ContentView: View {
     /// expanded to the mirror alone.
     @State private var mirrorExpanded = false
     @State private var selectedPageIDs: Set<UUID> = []
+    /// Pages whose `##` sections are listed under them in the sidebar.
+    @State private var expandedOutlines: Set<UUID> = []
+    /// Character offset the Markdown preview should scroll to, set by the sidebar outline.
+    @State private var previewScrollTarget: Int?
     @State private var pendingDeleteIDs: [UUID] = []
     /// The word being read, pointed at in the script pane while a read is running.
     @State private var followRange: NSRange?
@@ -281,7 +285,7 @@ Happy presenting! [wave]
     private var scriptEditor: some View {
         HighlightingTextEditor(
             text: currentText,
-            font: .systemFont(ofSize: 16, weight: .regular).rounded,
+            font: .systemFont(ofSize: NotchSettings.shared.editorFontSize, weight: .regular).rounded,
             highlightRange: dictationHighlightRange,
             followRange: isRunning ? followRange : nil,
             caretPosition: $dictationCaretPosition,
@@ -297,6 +301,30 @@ Happy presenting! [wave]
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 8)
+    }
+
+    /// The same page as rendered Markdown, for reading rather than editing.
+    private var markdownPreview: some View {
+        MarkdownPreviewView(
+            text: service.currentPageText,
+            fontSize: NotchSettings.shared.editorFontSize,
+            scrollTarget: $previewScrollTarget
+        )
+    }
+
+    /// Softens the top and bottom edges of the reading pane so text fades out rather than
+    /// being cut off by the toolbar and the transport controls.
+    private var fadeMask: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .white, location: 0.03),
+                .init(color: .white, location: 0.93),
+                .init(color: .clear, location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private var playMirror: some View {
@@ -341,20 +369,14 @@ Happy presenting! [wave]
                         }
                         .transition(.opacity)
                     }
+                } else if NotchSettings.shared.markdownPreviewEnabled {
+                    markdownPreview
+                        .mask(fadeMask)
+                        .transition(.opacity)
                 } else {
-                scriptEditor
-                .mask(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .white, location: 0.03),
-                            .init(color: .white, location: 0.93),
-                            .init(color: .clear, location: 1.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                    scriptEditor
+                        .mask(fadeMask)
+                        .transition(.opacity)
                 }
 
                 // Bottom bar
@@ -486,6 +508,87 @@ Happy presenting! [wave]
                 .allowsHitTesting(isDroppingPresentation)
             }
         }
+    }
+
+    // MARK: - Reading Controls
+
+    /// Grows and shrinks the script. A teleprompter script is written to be read out loud, so the
+    /// size that suits writing is rarely the size that suits reading it back.
+    private var fontSizeControl: some View {
+        HStack(spacing: 2) {
+            Button {
+                adjustFontSize(by: -1)
+            } label: {
+                Image(systemName: "textformat.size.smaller")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(NotchSettings.shared.editorFontSize <= NotchSettings.minEditorFontSize)
+            .help("Smaller text")
+
+            Text("\(Int(NotchSettings.shared.editorFontSize))")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+
+            Button {
+                adjustFontSize(by: 1)
+            } label: {
+                Image(systemName: "textformat.size.larger")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(NotchSettings.shared.editorFontSize >= NotchSettings.maxEditorFontSize)
+            .help("Bigger text")
+
+            // Most keyboards put "+" behind Shift, so ⌘= grows the text as well.
+            Button {
+                adjustFontSize(by: 1)
+            } label: {
+                Color.clear.frame(width: 0, height: 0)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("=", modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var previewToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                NotchSettings.shared.markdownPreviewEnabled.toggle()
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: NotchSettings.shared.markdownPreviewEnabled ? "eye.fill" : "curlybraces")
+                    .font(.system(size: 10))
+                Text(NotchSettings.shared.markdownPreviewEnabled ? "Preview" : "Markdown")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(NotchSettings.shared.markdownPreviewEnabled ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("p", modifiers: [.command, .shift])
+        .help(NotchSettings.shared.markdownPreviewEnabled
+              ? "Back to editing (\u{21E7}\u{2318}P)"
+              : "Preview the script as Markdown (\u{21E7}\u{2318}P)")
+    }
+
+    private func adjustFontSize(by delta: Double) {
+        NotchSettings.shared.editorFontSize = min(
+            NotchSettings.maxEditorFontSize,
+            max(NotchSettings.minEditorFontSize, NotchSettings.shared.editorFontSize + delta)
+        )
     }
 
     private var directorOverlay: some View {
@@ -630,6 +733,10 @@ Happy presenting! [wave]
                     }
                     .buttonStyle(.plain)
 
+                    fontSizeControl
+
+                    previewToggle
+
                     Button {
                         showSettings = true
                     } label: {
@@ -766,7 +873,7 @@ Happy presenting! [wave]
                             .padding(.vertical, 2)
                     } else {
                         ForEach(ids, id: \.self) { id in
-                            pageRow(id: id)
+                            pageRows(id: id)
                         }
                     }
                 } header: {
@@ -779,13 +886,13 @@ Happy presenting! [wave]
             if service.folders.isEmpty {
                 Section {
                     ForEach(service.pageIDs(inFolder: nil), id: \.self) { id in
-                        pageRow(id: id)
+                        pageRows(id: id)
                     }
                 }
             } else {
                 Section(isExpanded: $service.ungroupedIsExpanded) {
                     ForEach(service.pageIDs(inFolder: nil), id: \.self) { id in
-                        pageRow(id: id)
+                        pageRows(id: id)
                     }
                 } header: {
                     ungroupedHeader
@@ -802,10 +909,19 @@ Happy presenting! [wave]
                 : service.pageIDs.filter { selectedPageIDs.contains($0) })
         }
         .onChange(of: service.currentPageIndex) { _, index in
+            // The page being worked on shows its sections, so the outline follows the work.
+            if let id = service.pageID(at: index) {
+                expandedOutlines.insert(id)
+            }
             // Keep the sidebar in step when the page changes from elsewhere, but never
             // collapse a selection the user is building.
             guard selectedPageIDs.count <= 1, let id = service.pageID(at: index) else { return }
             selectedPageIDs = [id]
+        }
+        .onAppear {
+            if let id = service.pageID(at: service.currentPageIndex) {
+                expandedOutlines.insert(id)
+            }
         }
         .alert(deleteAlertTitle, isPresented: deletingBinding) {
             Button("Cancel", role: .cancel) { pendingDeleteIDs = [] }
@@ -953,29 +1069,75 @@ Happy presenting! [wave]
         }
     }
 
+    /// A page and, when it is a Markdown script with `##` headings, its sections listed under it
+    /// so any part of a long script is one click away.
+    @ViewBuilder
+    private func pageRows(id: UUID) -> some View {
+        pageRow(id: id)
+        if expandedOutlines.contains(id) {
+            ForEach(service.outline(for: id)) { section in
+                sectionRow(pageID: id, section: section)
+            }
+        }
+    }
+
+    /// The name a page goes by: its `#` title when it has one, otherwise its opening words.
+    private func pageTitle(_ id: UUID) -> String {
+        let text = service.text(for: id)
+        if let title = MarkdownScript.documentTitle(from: text), !title.isEmpty {
+            return title
+        }
+        return pagePreview(text)
+    }
+
     private func pageRow(id: UUID) -> some View {
         let index = service.index(of: id) ?? 0
         let isPinned = service.isPinned(id)
-        return Label {
-            HStack(spacing: 4) {
-                Text(pagePreview(service.text(for: id)))
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Color.accentColor)
+        let hasOutline = !service.outline(for: id).isEmpty
+        let isExpanded = expandedOutlines.contains(id)
+        return HStack(spacing: 5) {
+            // The chevron is a button of its own, so opening the outline never moves the
+            // selection off the page the operator is working on.
+            if hasOutline {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        toggleOutline(id)
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 12, height: 16)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(isExpanded ? "Hide sections" : "Show sections")
+            } else {
+                Color.clear.frame(width: 12, height: 16)
             }
-        } icon: {
+
             Text("\(index + 1)")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.primary)
                 .frame(width: 20, height: 20)
                 .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
+
+            Text(pageTitle(id))
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.accentColor)
+            }
+
+            Spacer(minLength: 0)
         }
+        .contentShape(Rectangle())
         .tag(id)
         .draggable(dragPayload(for: id))
         .dropDestination(for: String.self) { items, _ in
@@ -983,6 +1145,70 @@ Happy presenting! [wave]
         }
         .contextMenu {
             pageMenu(for: id)
+        }
+    }
+
+    private func sectionRow(pageID: UUID, section: ScriptSection) -> some View {
+        let isCurrentPage = service.index(of: pageID) == service.currentPageIndex
+        let isCurrent = isCurrentPage
+            && !service.sections.isEmpty
+            && service.currentSectionIndex == section.id
+        let isRead = isCurrentPage && service.readSections.contains(section.id)
+        return HStack(spacing: 6) {
+            Circle()
+                .fill(isCurrent ? Color.accentColor : (isRead ? Color.green.opacity(0.6) : Color.secondary.opacity(0.3)))
+                .frame(width: 5, height: 5)
+            Text(section.title)
+                .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 21)
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .help(section.title)
+        .onTapGesture {
+            openSection(pageID: pageID, section: section)
+        }
+    }
+
+    private func toggleOutline(_ id: UUID) {
+        if expandedOutlines.contains(id) {
+            expandedOutlines.remove(id)
+        } else {
+            expandedOutlines.insert(id)
+        }
+    }
+
+    /// Jumps to a section: mid-read the prompter starts reading it, otherwise the script pane
+    /// scrolls to it and Play will pick up from there.
+    private func openSection(pageID: UUID, section: ScriptSection) {
+        if isRecording {
+            stopRecording()
+        }
+        if let index = service.index(of: pageID), index != service.currentPageIndex {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                service.currentPageIndex = index
+            }
+            selectedPageIDs = [pageID]
+        }
+
+        if isRunning {
+            service.readSection(at: section.id)
+        } else {
+            service.refreshSections()
+            if service.sections.indices.contains(section.id) {
+                service.currentSectionIndex = section.id
+            }
+        }
+
+        let location = section.headingRange?.location ?? 0
+        if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
+            previewScrollTarget = location
+        } else {
+            dictationCaretPosition = location
         }
     }
 

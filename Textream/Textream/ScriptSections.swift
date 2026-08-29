@@ -15,6 +15,17 @@ struct ScriptSection: Identifiable, Equatable {
     /// Where each word of `body` sits in the original page text, so a position in the read can be
     /// pointed at in the editor. Empty if the two could not be lined up word for word.
     let wordRanges: [NSRange]
+    /// Where the `##` line itself sits in the page text, so the sidebar can jump the editor to it.
+    /// Nil for the prose that runs before the first heading, which has no line of its own.
+    let headingRange: NSRange?
+
+    init(id: Int, title: String, body: String, wordRanges: [NSRange], headingRange: NSRange? = nil) {
+        self.id = id
+        self.title = title
+        self.body = body
+        self.wordRanges = wordRanges
+        self.headingRange = headingRange
+    }
 }
 
 /// Turns a Markdown script into sections the prompter can read one at a time.
@@ -33,6 +44,7 @@ enum MarkdownScript {
 
         var sections: [ScriptSection] = []
         var title = "Intro"
+        var headingRange: NSRange? = nil
         var body: [String] = []
         var ranges: [NSRange] = []
 
@@ -45,7 +57,13 @@ enum MarkdownScript {
             }
             // Only keep the mapping when it lines up word for word with what will be read.
             let aligned = tokenizeText(text).words.count == ranges.count ? ranges : []
-            sections.append(ScriptSection(id: sections.count, title: title, body: text, wordRanges: aligned))
+            sections.append(ScriptSection(
+                id: sections.count,
+                title: title,
+                body: text,
+                wordRanges: aligned,
+                headingRange: headingRange
+            ))
             body = []
             ranges = []
         }
@@ -59,6 +77,7 @@ enum MarkdownScript {
             case let level? where level >= 2:
                 flush()
                 title = headingText(of: line)
+                headingRange = lineRange
             default:
                 body.append(stripInline(line))
                 ranges.append(contentsOf: wordRanges(in: line, offsetBy: lineRange.location))
@@ -68,8 +87,23 @@ enum MarkdownScript {
 
         // Renumber, since empty sections are dropped rather than kept as gaps.
         return sections.enumerated().map { index, section in
-            ScriptSection(id: index, title: section.title, body: section.body, wordRanges: section.wordRanges)
+            ScriptSection(
+                id: index,
+                title: section.title,
+                body: section.body,
+                wordRanges: section.wordRanges,
+                headingRange: section.headingRange
+            )
         }
+    }
+
+    /// The script's `#` title, which names the page in the sidebar but is never read aloud.
+    static func documentTitle(from text: String) -> String? {
+        for line in text.components(separatedBy: .newlines) where headingLevel(of: line) == 1 {
+            let title = headingText(of: line)
+            return title.isEmpty ? nil : title
+        }
+        return nil
     }
 
     /// Word ranges for a page with no headings, in the same order the prompter will read them.

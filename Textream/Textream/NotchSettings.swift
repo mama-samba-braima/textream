@@ -405,6 +405,21 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(externalPaddingV, forKey: "externalPaddingV") }
     }
 
+    /// Point size of the script editor and the Markdown preview. Scripts are written to be read
+    /// aloud, so the writer often wants them bigger on screen than a normal text editor.
+    var editorFontSize: Double {
+        didSet { UserDefaults.standard.set(editorFontSize, forKey: "editorFontSize") }
+    }
+
+    /// Shows the current page as rendered Markdown instead of raw source.
+    var markdownPreviewEnabled: Bool {
+        didSet { UserDefaults.standard.set(markdownPreviewEnabled, forKey: "markdownPreviewEnabled") }
+    }
+
+    static let defaultEditorFontSize: Double = 16
+    static let minEditorFontSize: Double = 11
+    static let maxEditorFontSize: Double = 36
+
     var listeningMode: ListeningMode {
         didSet { UserDefaults.standard.set(listeningMode.rawValue, forKey: "listeningMode") }
     }
@@ -515,6 +530,11 @@ class NotchSettings {
         self.mirrorAxis = MirrorAxis(rawValue: UserDefaults.standard.string(forKey: "mirrorAxis") ?? "") ?? .horizontal
         self.externalPaddingH = UserDefaults.standard.object(forKey: "externalPaddingH") as? Double ?? Self.defaultExternalPaddingH
         self.externalPaddingV = UserDefaults.standard.object(forKey: "externalPaddingV") as? Double ?? Self.defaultExternalPaddingV
+        let savedEditorFontSize = UserDefaults.standard.double(forKey: "editorFontSize")
+        self.editorFontSize = savedEditorFontSize > 0
+            ? min(Self.maxEditorFontSize, max(Self.minEditorFontSize, savedEditorFontSize))
+            : Self.defaultEditorFontSize
+        self.markdownPreviewEnabled = UserDefaults.standard.object(forKey: "markdownPreviewEnabled") as? Bool ?? false
         self.listeningMode = ListeningMode(rawValue: UserDefaults.standard.string(forKey: "listeningMode") ?? "") ?? .wordTracking
         let savedSpeed = UserDefaults.standard.double(forKey: "scrollSpeed")
         self.scrollSpeed = savedSpeed > 0 ? savedSpeed : 3
