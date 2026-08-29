@@ -416,6 +416,16 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(markdownPreviewEnabled, forKey: "markdownPreviewEnabled") }
     }
 
+    /// Point size of the sidebar's page titles. Sized on its own, since a list of titles and a
+    /// page of prose are read at different distances.
+    var sidebarFontSize: Double {
+        didSet { UserDefaults.standard.set(sidebarFontSize, forKey: "sidebarFontSize") }
+    }
+
+    static let defaultSidebarFontSize: Double = 12
+    static let minSidebarFontSize: Double = 9
+    static let maxSidebarFontSize: Double = 22
+
     static let defaultEditorFontSize: Double = 16
     static let minEditorFontSize: Double = 11
     static let maxEditorFontSize: Double = 36
@@ -534,6 +544,10 @@ class NotchSettings {
         self.editorFontSize = savedEditorFontSize > 0
             ? min(Self.maxEditorFontSize, max(Self.minEditorFontSize, savedEditorFontSize))
             : Self.defaultEditorFontSize
+        let savedSidebarFontSize = UserDefaults.standard.double(forKey: "sidebarFontSize")
+        self.sidebarFontSize = savedSidebarFontSize > 0
+            ? min(Self.maxSidebarFontSize, max(Self.minSidebarFontSize, savedSidebarFontSize))
+            : Self.defaultSidebarFontSize
         self.markdownPreviewEnabled = UserDefaults.standard.object(forKey: "markdownPreviewEnabled") as? Bool ?? false
         self.listeningMode = ListeningMode(rawValue: UserDefaults.standard.string(forKey: "listeningMode") ?? "") ?? .wordTracking
         let savedSpeed = UserDefaults.standard.double(forKey: "scrollSpeed")

@@ -541,7 +541,7 @@ Happy presenting! [wave]
             .buttonStyle(.plain)
             .keyboardShortcut("-", modifiers: .command)
             .disabled(NotchSettings.shared.editorFontSize <= NotchSettings.minEditorFontSize)
-            .help("Smaller text")
+            .help("Smaller script text")
 
             Text("\(Int(NotchSettings.shared.editorFontSize))")
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -560,7 +560,7 @@ Happy presenting! [wave]
             .buttonStyle(.plain)
             .keyboardShortcut("+", modifiers: .command)
             .disabled(NotchSettings.shared.editorFontSize >= NotchSettings.maxEditorFontSize)
-            .help("Bigger text")
+            .help("Bigger script text")
 
             // Most keyboards put "+" behind Shift, so ⌘= grows the text as well.
             Button {
@@ -837,12 +837,10 @@ Happy presenting! [wave]
 
     // MARK: - Page Sidebar
 
-    /// The sidebar grows with the script, so one control sizes the whole window rather than
-    /// leaving the page list tiny next to 30pt text. It is damped: the sidebar holds titles, not
-    /// prose, and it still has to fit in a column.
+    /// The sidebar is sized on its own, separately from the script: a list of titles and a page
+    /// of prose are read at different distances. `sb(12)`, a page title, is exactly the setting.
     private var sidebarScale: CGFloat {
-        let ratio = NotchSettings.shared.editorFontSize / NotchSettings.defaultEditorFontSize
-        return min(1.5, max(0.9, 1 + (ratio - 1) * 0.6))
+        NotchSettings.shared.sidebarFontSize / NotchSettings.defaultSidebarFontSize
     }
 
     /// A sidebar metric at the current scale, be it a point size, an icon or a row inset.
@@ -1004,6 +1002,8 @@ Happy presenting! [wave]
 
             Spacer(minLength: 0)
 
+            sidebarSizeMenu
+
             Button {
                 newFolder()
             } label: {
@@ -1030,6 +1030,57 @@ Happy presenting! [wave]
         }
         .padding(.horizontal, 4)
         .background(.bar)
+    }
+
+    /// Sizes the sidebar. Kept to one button so the footer stays legible at a narrow column,
+    /// with the shortcuts carried alongside since a menu's own shortcuts only live while it is open.
+    private var sidebarSizeMenu: some View {
+        Menu {
+            Button("Bigger") { adjustSidebarFontSize(by: 1) }
+            Button("Smaller") { adjustSidebarFontSize(by: -1) }
+            Divider()
+            Button("Reset") {
+                NotchSettings.shared.sidebarFontSize = NotchSettings.defaultSidebarFontSize
+            }
+        } label: {
+            Image(systemName: "textformat.size")
+                .font(.system(size: sb(12)))
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: sb(28), height: sb(28))
+        .help("Sidebar text size (\u{2325}\u{2318}+ and \u{2325}\u{2318}-)")
+        .background {
+            // Shortcut carriers: a Button is what makes a shortcut live, and these have no size.
+            Group {
+                sidebarSizeKey("+", by: 1)
+                sidebarSizeKey("=", by: 1)
+                sidebarSizeKey("-", by: -1)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func sidebarSizeKey(_ key: KeyEquivalent, by delta: Double) -> some View {
+        Button {
+            adjustSidebarFontSize(by: delta)
+        } label: {
+            Color.clear.frame(width: 0, height: 0)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(key, modifiers: [.command, .option])
+    }
+
+    private func adjustSidebarFontSize(by delta: Double) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            NotchSettings.shared.sidebarFontSize = min(
+                NotchSettings.maxSidebarFontSize,
+                max(NotchSettings.minSidebarFontSize, NotchSettings.shared.sidebarFontSize + delta)
+            )
+        }
     }
 
     private func folderHeader(_ folder: PageFolder) -> some View {
@@ -1156,8 +1207,7 @@ Happy presenting! [wave]
                 .font(.system(size: sb(12)))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .strikethrough(isDone, color: .secondary)
-                .foregroundStyle(isDone ? Color.secondary : Color.primary)
+                .foregroundStyle(Color.primary)
 
             if isPinned {
                 Image(systemName: "pin.fill")
@@ -1200,8 +1250,7 @@ Happy presenting! [wave]
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .strikethrough(isDone, color: .secondary)
-                .opacity(isDone ? 0.6 : 1)
+
             Spacer(minLength: 0)
 
             checkbox(isDone: isDone, size: sb(11), help: isDone ? "Mark section as not done" : "Mark section as done") {
