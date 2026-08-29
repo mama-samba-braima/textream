@@ -109,7 +109,70 @@ struct PlayModeView: View {
                 remoteStrip(url: remoteURL)
             }
             mirror
+            readoutRow
         }
+    }
+
+    /// Under the mirror rather than over it: how far through the section the read is, then where
+    /// that section sits in the script. Both are the operator's business, not the talent's, so
+    /// they get their own space instead of covering the words.
+    private var readoutRow: some View {
+        VStack(spacing: 8) {
+            progressStepper
+                .frame(height: 20)
+                .padding(.horizontal, 16)
+
+            if !service.sections.isEmpty {
+                Text("Section \(service.currentSectionIndex + 1) of \(service.sections.count)")
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(height: 1)
+        }
+    }
+
+    /// Progress through the section, and a handle on it: dragging scrubs the read the same way
+    /// dragging the mirror does.
+    private var progressStepper: some View {
+        GeometryReader { geo in
+            let progress = totalCharCount > 0
+                ? min(1, max(0, Double(effectiveCharCount) / Double(totalCharCount)))
+                : 0
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.12))
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: max(6, geo.size.width * progress))
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        onScrub(charOffset(atX: value.location.x, width: geo.size.width))
+                    }
+                    .onEnded { value in
+                        let offset = charOffset(atX: value.location.x, width: geo.size.width)
+                        timerWordProgress = wordProgressForCharOffset(offset)
+                        onSeek(offset)
+                    }
+            )
+        }
+    }
+
+    private func charOffset(atX x: CGFloat, width: CGFloat) -> Int {
+        guard width > 0 else { return 0 }
+        let fraction = min(1, max(0, Double(x / width)))
+        return Int(Double(totalCharCount) * fraction)
     }
 
     /// The address to scan to drive the prompter from a phone, kept where the operator is already
@@ -371,18 +434,12 @@ struct PlayModeView: View {
         )
     }
 
-    /// Where the read stands, and a retake. Moving between sections is the arrow keys' job.
+    /// Section stepping lives on the arrow keys. These carry the shortcuts without taking up any
+    /// room, since a shortcut has to hang off a button to be live.
     @ViewBuilder
     private var sectionFooter: some View {
         if !service.sections.isEmpty {
-            HStack(spacing: 10) {
-                Text("Section \(service.currentSectionIndex + 1) of \(service.sections.count)")
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .fixedSize()
-
-                // Section stepping lives on the arrow keys. These carry the shortcuts without
-                // taking up room, since a shortcut has to hang off a button to be live.
+            HStack(spacing: 0) {
                 sectionKey(.leftArrow, enabled: service.hasPreviousSection) {
                     service.goToPreviousSection()
                 }
@@ -390,9 +447,7 @@ struct PlayModeView: View {
                     service.advanceToNextSection()
                 }
             }
-            .padding(.leading, 20)
-            .padding(.bottom, 22)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .frame(width: 0, height: 0)
         }
     }
 
