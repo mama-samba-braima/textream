@@ -193,6 +193,10 @@ class TextreamService: NSObject, ObservableObject {
             keepMainWindowInFront()
         }
 
+        for content in [overlayController.overlayContent, externalDisplayController.overlayContent] {
+            content.isPaused = false
+        }
+
         overlayController.show(text: trimmed, hasNextPage: hasNextChunk) { [weak self] in
             self?.externalDisplayController.dismiss()
             self?.browserServer.hideContent()
@@ -1128,6 +1132,24 @@ class TextreamService: NSObject, ObservableObject {
             content.scrubCharOffset = charOffset
         }
         browserServer.applyScrub(charOffset: charOffset)
+    }
+
+    /// True while the read is held.
+    var isReadPaused: Bool { overlayController.overlayContent.isPaused }
+
+    /// Holds the read where it is, or lets it go. Timer-driven modes stop scrolling; the
+    /// word-tracking mode stops listening, since what moves that read is the microphone.
+    func togglePause() {
+        let pausing = !isReadPaused
+        for content in [overlayController.overlayContent, externalDisplayController.overlayContent] {
+            content.isPaused = pausing
+        }
+        guard NotchSettings.shared.listeningMode != .classic else { return }
+        if pausing {
+            overlayController.speechRecognizer.stop()
+        } else {
+            overlayController.speechRecognizer.resume()
+        }
     }
 
     /// Continue reading from an arbitrary point, requested by the remote.

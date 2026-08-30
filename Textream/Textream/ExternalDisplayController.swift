@@ -259,7 +259,7 @@ struct ExternalDisplayView: View {
             }
         }
         .onReceive(scrollTimer) { _ in
-            guard isLive, !isDone, !isUserScrolling else { return }
+            guard isLive, !isDone, !isUserScrolling, !content.isPaused else { return }
             let speed = NotchSettings.shared.scrollSpeed // words per second
             switch listeningMode {
             case .classic:

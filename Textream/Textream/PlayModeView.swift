@@ -243,7 +243,7 @@ struct PlayModeView: View {
         .onReceive(scrollTimer) { _ in
             // A shadow of the prompter's own timer, kept only so the arrows know where the read
             // currently is. Any seek resyncs it, so it cannot drift far.
-            guard isRunning, !isUserScrolling else { return }
+            guard isRunning, !isUserScrolling, !content.isPaused else { return }
             let done = totalCharCount > 0 && charOffsetForWordProgress(timerWordProgress) >= totalCharCount
             guard !done else { return }
             let speed = NotchSettings.shared.scrollSpeed
@@ -379,7 +379,20 @@ struct PlayModeView: View {
                     help: "Read this section again from the top",
                     action: { service.restartCurrentRead() }
                 )
-                .offset(x: -53)
+                .offset(x: -109)
+
+                // Beside stop and the same size: holding a take is as much a part of the job as
+                // ending one, and the hand should not have to hunt for a smaller target.
+                circleButton(
+                    systemImage: service.isReadPaused ? "play.fill" : "pause.fill",
+                    diameter: 44,
+                    glyph: 16,
+                    fill: Color.white.opacity(0.18),
+                    tint: service.isReadPaused ? .yellow.opacity(0.9) : .white,
+                    help: service.isReadPaused ? "Carry on reading" : "Hold the read here",
+                    action: { service.togglePause() }
+                )
+                .offset(x: -56)
 
                 circleButton(
                     systemImage: "stop.fill",

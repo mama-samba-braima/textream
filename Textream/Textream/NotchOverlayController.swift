@@ -53,6 +53,9 @@ class OverlayContent {
     // normal position on every surface until the scroll settles.
     var scrubCharOffset: Int? = nil
 
+    /// Held: the read stays exactly where it is on every surface until it is let go.
+    var isPaused: Bool = false
+
     /// Populate `words`, `lineBreaks`, and `totalCharCount` from raw script text.
     func apply(text: String) {
         let tokenized = tokenizeText(text)
@@ -674,6 +677,9 @@ struct NotchOverlayView: View {
     // Timer-based scroll for classic & silence-paused modes
     @State private var timerWordProgress: Double = 0
     @State private var isPaused: Bool = false
+
+    /// This view's own pause button, or a pause asked for from the app.
+    private var isReadPaused: Bool { isPaused || content.isPaused }
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
@@ -864,11 +870,11 @@ struct NotchOverlayView: View {
             let speed = NotchSettings.shared.scrollSpeed // words per second
             switch listeningMode {
             case .classic:
-                if !isPaused {
+                if !isReadPaused {
                     timerWordProgress += speed * 0.05
                 }
             case .silencePaused:
-                if !isPaused && speechRecognizer.isListening && speechRecognizer.isSpeaking {
+                if !isReadPaused && speechRecognizer.isListening && speechRecognizer.isSpeaking {
                     timerWordProgress += speed * 0.05
                 }
             case .wordTracking:
@@ -895,7 +901,7 @@ struct NotchOverlayView: View {
         case .wordTracking, .silencePaused:
             return speechRecognizer.isListening
         case .classic:
-            return !isPaused
+            return !isReadPaused
         }
     }
 
@@ -1262,6 +1268,9 @@ struct FloatingOverlayView: View {
     // Timer-based scroll for classic & silence-paused modes
     @State private var timerWordProgress: Double = 0
     @State private var isPaused: Bool = false
+
+    /// This view's own pause button, or a pause asked for from the app.
+    private var isReadPaused: Bool { isPaused || content.isPaused }
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
@@ -1319,7 +1328,7 @@ struct FloatingOverlayView: View {
         case .wordTracking, .silencePaused:
             return speechRecognizer.isListening
         case .classic:
-            return !isPaused
+            return !isReadPaused
         }
     }
 
@@ -1398,11 +1407,11 @@ struct FloatingOverlayView: View {
             let speed = NotchSettings.shared.scrollSpeed // words per second
             switch listeningMode {
             case .classic:
-                if !isPaused {
+                if !isReadPaused {
                     timerWordProgress += speed * 0.05
                 }
             case .silencePaused:
-                if !isPaused && speechRecognizer.isListening && speechRecognizer.isSpeaking {
+                if !isReadPaused && speechRecognizer.isListening && speechRecognizer.isSpeaking {
                     timerWordProgress += speed * 0.05
                 }
             case .wordTracking:

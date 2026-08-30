@@ -416,7 +416,7 @@ Happy presenting! [wave]
     /// The writing side of the window: the editor, or the rendered Markdown when the preview is on.
     private var scriptPane: some View {
         ZStack {
-            if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
+            if NotchSettings.shared.markdownPreviewEnabled {
                 markdownPreview
                     .mask(fadeMask)
             } else {
@@ -688,7 +688,6 @@ Happy presenting! [wave]
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .keyboardShortcut("-", modifiers: .command)
             .disabled(NotchSettings.shared.editorFontSize <= NotchSettings.minEditorFontSize)
             .help("Smaller script text")
 
@@ -707,21 +706,8 @@ Happy presenting! [wave]
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .keyboardShortcut("+", modifiers: .command)
             .disabled(NotchSettings.shared.editorFontSize >= NotchSettings.maxEditorFontSize)
             .help("Bigger script text")
-
-            // Most keyboards put "+" behind Shift, so ⌘= grows the text as well.
-            Button {
-                adjustFontSize(by: 1)
-            } label: {
-                Color.clear.frame(width: 0, height: 0)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("=", modifiers: .command)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
         }
     }
 
@@ -738,7 +724,6 @@ Happy presenting! [wave]
             .foregroundStyle(NotchSettings.shared.markdownPreviewEnabled ? Color.accentColor : .secondary)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut("p", modifiers: [.command, .shift])
         .help(NotchSettings.shared.markdownPreviewEnabled
               ? "Back to editing (\u{21E7}\u{2318}P)"
               : "Preview the script as Markdown (\u{21E7}\u{2318}P)")
@@ -827,6 +812,15 @@ Happy presenting! [wave]
         windowBody
             .onReceive(NotificationCenter.default.publisher(for: .findInScript)) { _ in
                 openFind()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleMarkdownPreview)) { _ in
+                NotchSettings.shared.markdownPreviewEnabled.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .adjustScriptTextSize)) { note in
+                adjustFontSize(by: note.object as? Double ?? 1)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .adjustSidebarTextSize)) { note in
+                adjustSidebarFontSize(by: note.object as? Double ?? 1)
             }
             .onReceive(NotificationCenter.default.publisher(for: .findNext)) { _ in
                 if showFind { stepFind(by: 1) } else { openFind() }
@@ -1245,17 +1239,6 @@ Happy presenting! [wave]
                 }
             }
         }
-        .background {
-            // Shortcut carriers: a Button is what makes a shortcut live, and these have no size.
-            Group {
-                sidebarSizeKey("+", by: 1)
-                sidebarSizeKey("=", by: 1)
-                sidebarSizeKey("-", by: -1)
-            }
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
-        }
     }
 
     private func sidebarSizeButton(
@@ -1277,16 +1260,6 @@ Happy presenting! [wave]
         .disabled(disabled)
         .opacity(disabled ? 0.35 : 1)
         .help(help)
-    }
-
-    private func sidebarSizeKey(_ key: KeyEquivalent, by delta: Double) -> some View {
-        Button {
-            adjustSidebarFontSize(by: delta)
-        } label: {
-            Color.clear.frame(width: 0, height: 0)
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut(key, modifiers: [.command, .option])
     }
 
     private func adjustSidebarFontSize(by delta: Double) {
@@ -1558,7 +1531,7 @@ Happy presenting! [wave]
         }
 
         let location = section.headingRange?.location ?? 0
-        if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
+        if NotchSettings.shared.markdownPreviewEnabled {
             previewScrollTarget = location
         } else {
             editorScrollTarget = location

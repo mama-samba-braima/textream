@@ -13,6 +13,10 @@ extension Notification.Name {
     static let findInScript = Notification.Name("findInScript")
     static let findNext = Notification.Name("findNext")
     static let findPrevious = Notification.Name("findPrevious")
+    static let toggleMarkdownPreview = Notification.Name("toggleMarkdownPreview")
+    /// Object carries the change in points, as a Double.
+    static let adjustScriptTextSize = Notification.Name("adjustScriptTextSize")
+    static let adjustSidebarTextSize = Notification.Name("adjustSidebarTextSize")
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -185,6 +189,38 @@ struct TextreamApp: App {
                     NotificationCenter.default.post(name: .findPrevious, object: nil)
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
+            }
+            // In the menu bar rather than hung off a toolbar button: a menu item's shortcut is
+            // live whenever the window is, and it can be found by looking.
+            CommandMenu("View") {
+                Button("Markdown Preview") {
+                    NotificationCenter.default.post(name: .toggleMarkdownPreview, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Bigger Script Text") {
+                    NotificationCenter.default.post(name: .adjustScriptTextSize, object: 1.0)
+                }
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button("Smaller Script Text") {
+                    NotificationCenter.default.post(name: .adjustScriptTextSize, object: -1.0)
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Divider()
+
+                Button("Bigger Sidebar Text") {
+                    NotificationCenter.default.post(name: .adjustSidebarTextSize, object: 1.0)
+                }
+                .keyboardShortcut("+", modifiers: [.command, .option])
+
+                Button("Smaller Sidebar Text") {
+                    NotificationCenter.default.post(name: .adjustSidebarTextSize, object: -1.0)
+                }
+                .keyboardShortcut("-", modifiers: [.command, .option])
             }
             CommandGroup(replacing: .windowArrangement) { }
             CommandGroup(replacing: .help) {
