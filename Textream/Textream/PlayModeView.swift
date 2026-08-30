@@ -41,9 +41,6 @@ struct PlayModeView: View {
     @ObservedObject private var service = TextreamService.shared
     /// Which chip the strip is parked on. Scrolling the bar never moves the read.
     @State private var scrollAnchor: Int = 0
-    /// Starts small: the code only needs to be big while someone is walking over to scan it,
-    /// and every point it takes is a point of script the operator cannot see.
-    @State private var qrEnlarged = false
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -116,9 +113,6 @@ struct PlayModeView: View {
             if !service.sections.isEmpty {
                 sectionBar
             }
-            if let remoteURL = RemoteConnection.url {
-                remoteStrip(url: remoteURL)
-            }
             mirror
             readoutRow
         }
@@ -143,11 +137,6 @@ struct PlayModeView: View {
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
         .background(Color.black)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(.white.opacity(0.08))
-                .frame(height: 1)
-        }
     }
 
     /// Progress through the section, and a handle on it: dragging scrubs the read the same way
@@ -188,64 +177,6 @@ struct PlayModeView: View {
         return Int(Double(totalCharCount) * fraction)
     }
 
-    /// The address to scan to drive the prompter from a phone, kept where the operator is already
-    /// looking rather than buried in Settings. Only appears while the remote server is running.
-    private func remoteStrip(url: String) -> some View {
-        VStack(spacing: 6) {
-            if let qr = RemoteConnection.qrCode(for: url) {
-                // Smoothed rather than nearest-neighbour: at these sizes the code is scaled by a
-                // fraction, and point sampling both biases it off centre and drops modules, which
-                // is the one thing a code being scanned cannot afford.
-                Image(nsImage: qr)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: qrSize, height: qrSize)
-                    .frame(width: qrSize + 10, height: qrSize + 10)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-
-            Text("Scan to control from your phone")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.45))
-
-            Text(url)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.85))
-                .textSelection(.enabled)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 18)
-        .padding(.bottom, 12)
-        .padding(.horizontal, 12)
-        .background(Color.black)
-        .overlay(alignment: .topTrailing) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    qrEnlarged.toggle()
-                }
-            } label: {
-                Image(systemName: qrEnlarged ? "minus.magnifyingglass" : "plus.magnifyingglass")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(qrEnlarged ? "Shrink the code" : "Enlarge the code to scan from further away")
-            .padding(.trailing, 10)
-            .padding(.top, 10)
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(.white.opacity(0.08))
-                .frame(height: 1)
-        }
-    }
-
-    private var qrSize: CGFloat { qrEnlarged ? 112 : 48 }
-
     /// Every section of the script, in order, so the read can be started anywhere. The current one
     /// is marked, and sections already read are ticked, which is the whole state of a take at a
     /// glance.
@@ -268,11 +199,6 @@ struct PlayModeView: View {
                 scrollArrow(systemImage: "chevron.right", step: 1, proxy: proxy)
             }
             .background(Color.black)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(.white.opacity(0.08))
-                    .frame(height: 1)
-            }
             .onAppear { scrollAnchor = service.currentSectionIndex }
             .onChange(of: service.currentSectionIndex) { _, index in
                 scrollAnchor = index
@@ -353,8 +279,6 @@ struct PlayModeView: View {
             let canStretch = geo.size.height / widthScale >= surfaceSize.height
             let scale = canStretch ? widthScale : min(widthScale, geo.size.height / surfaceSize.height)
             let virtualHeight = max(surfaceSize.height, geo.size.height / scale)
-            // Where the monitor's own top and bottom edges fall in the stretched view
-            let overhang = (virtualHeight - surfaceSize.height) / 2 * scale
 
             ZStack {
                 Color.black
@@ -364,20 +288,6 @@ struct PlayModeView: View {
                     .scaleEffect(scale, anchor: .center)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    // The stretched view shows more than the monitor does, so mark where the
-                    // monitor actually ends. Outside these lines is look-ahead, not on air.
-                    .overlay(alignment: .top) {
-                        if overhang > 6 {
-                            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
-                                .padding(.top, overhang)
-                        }
-                    }
-                    .overlay(alignment: .bottom) {
-                        if overhang > 6 {
-                            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
-                                .padding(.bottom, overhang)
-                        }
-                    }
 
                 if isRunning {
                     nudgeControls

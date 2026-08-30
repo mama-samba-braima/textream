@@ -1052,45 +1052,21 @@ Happy presenting! [wave]
 
     private var pageSidebar: some View {
         List(selection: sidebarSelection) {
-            ForEach(service.folders) { folder in
-                Section(isExpanded: expansionBinding(for: folder)) {
-                    let ids = service.pageIDs(inFolder: folder.id)
-                    if ids.isEmpty {
-                        Text("Drag pages here")
-                            .font(.system(size: sb(11)))
-                            .foregroundStyle(.tertiary)
-                            .padding(.vertical, 2)
-                    } else {
-                        ForEach(sidebarItems(ids)) { item in
-                            sidebarRow(item)
-                        }
-                    }
-                } header: {
-                    folderHeader(folder)
-                }
-            }
-
-            // Only collapsible once there are folders: without a header there would be no
-            // control to reopen the section with.
-            if service.folders.isEmpty {
-                Section {
-                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
-                        sidebarRow(item)
-                    }
-                }
+            if isRunning {
+                takeRows
             } else {
-                Section(isExpanded: $service.ungroupedIsExpanded) {
-                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
-                        sidebarRow(item)
-                    }
-                } header: {
-                    ungroupedHeader
-                }
+                libraryRows
             }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            sidebarFooter
+            // Mid-take the phone remote is what the bottom of the sidebar is for; otherwise it is
+            // where pages are made.
+            if isRunning {
+                remotePanel
+            } else {
+                sidebarFooter
+            }
         }
         .onDeleteCommand {
             requestDelete(selectedPageIDs.isEmpty
@@ -1132,6 +1108,94 @@ Happy presenting! [wave]
                 renamingFolderID = nil
             }
         }
+    }
+
+    /// Mid-take: the page being read and its sections, and nothing else. Everything else in the
+    /// library is a distraction while the camera is rolling.
+    @ViewBuilder
+    private var takeRows: some View {
+        if let id = service.pageID(at: service.currentPageIndex) {
+            Section {
+                pageRow(id: id)
+                ForEach(service.outline(for: id)) { section in
+                    sectionRow(pageID: id, section: section)
+                }
+            } header: {
+                Text("Now Reading")
+                    .font(.system(size: sb(11), weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The phone remote, pinned to the foot of the sidebar during a take.
+    @ViewBuilder
+    private var remotePanel: some View {
+        if let url = RemoteConnection.url {
+            VStack(spacing: 6) {
+                if let qr = RemoteConnection.qrCode(for: url) {
+                    Image(nsImage: qr)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 96, height: 96)
+                        .padding(6)
+                        .background(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                Text("Scan to control from your phone")
+                    .font(.system(size: sb(10)))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Text(url)
+                    .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+        }
+    }
+
+    @ViewBuilder
+    private var libraryRows: some View {
+            ForEach(service.folders) { folder in
+                Section(isExpanded: expansionBinding(for: folder)) {
+                    let ids = service.pageIDs(inFolder: folder.id)
+                    if ids.isEmpty {
+                        Text("Drag pages here")
+                            .font(.system(size: sb(11)))
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 2)
+                    } else {
+                        ForEach(sidebarItems(ids)) { item in
+                            sidebarRow(item)
+                        }
+                    }
+                } header: {
+                    folderHeader(folder)
+                }
+            }
+
+            // Only collapsible once there are folders: without a header there would be no
+            // control to reopen the section with.
+            if service.folders.isEmpty {
+                Section {
+                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
+                        sidebarRow(item)
+                    }
+                }
+            } else {
+                Section(isExpanded: $service.ungroupedIsExpanded) {
+                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
+                        sidebarRow(item)
+                    }
+                } header: {
+                    ungroupedHeader
+                }
+            }
     }
 
     private var ungroupedHeader: some View {

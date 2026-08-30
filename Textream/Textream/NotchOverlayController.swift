@@ -1209,9 +1209,7 @@ struct NotchOverlayView: View {
                         .foregroundStyle(.white)
                 }
             }
-            Spacer()
         }
-        .transition(.scale.combined(with: .opacity))
     }
 }
 
@@ -1326,13 +1324,16 @@ struct FloatingOverlayView: View {
         VStack(spacing: 0) {
             if content.showPagePicker {
                 floatingPagePickerView
-            } else if isDone && (listeningMode == .wordTracking || hasNextPage) {
-                floatingDoneView
             } else {
                 floatingPrompterView
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            if !content.showPagePicker {
+                floatingDoneView
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if isLive && NotchSettings.shared.showElapsedTime {
                 ElapsedTimeView(fontSize: 11)
@@ -1646,9 +1647,30 @@ struct FloatingOverlayView: View {
         .transition(.opacity)
     }
 
+    /// The end of a read, along the foot of the overlay rather than in place of the script: the
+    /// last line is the one most likely to be read again.
+    @ViewBuilder
     private var floatingDoneView: some View {
-        VStack {
-            Spacer()
+        if isLive && isDone && (listeningMode == .wordTracking || hasNextPage) {
+            floatingDoneControls
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background {
+                    LinearGradient(
+                        colors: [.black.opacity(0), .black.opacity(0.92), .black.opacity(0.92)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .padding(.top, -24)
+                    .allowsHitTesting(false)
+                }
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var floatingDoneControls: some View {
+        Group {
             if hasNextPage {
                 VStack(spacing: 6) {
                     if countdownRemaining > 0 {

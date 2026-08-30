@@ -233,12 +233,10 @@ struct ExternalDisplayView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-
-            if isDone && (listeningMode == .wordTracking || hasNextPage) {
-                doneView
-            } else {
-                prompterView
-            }
+            prompterView
+        }
+        .overlay(alignment: .bottom) {
+            doneBar
         }
         .overlay(alignment: .topLeading) {
             // The clock times a take. Standing by, there is nothing to time.
@@ -353,34 +351,72 @@ struct ExternalDisplayView: View {
         }
     }
 
-    private var doneView: some View {
-        VStack(spacing: 12) {
-            if hasNextPage {
-                Button {
-                    speechRecognizer.shouldAdvancePage = true
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 28, weight: .bold))
-                        Text(content.nextIsSection ? "Next Section" : "Next Page")
-                            .font(.system(size: 28, weight: .bold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 16)
-                    .background(Color.accentColor)
-                    .clipShape(Capsule())
+    private var isFinished: Bool {
+        isLive && isDone && (listeningMode == .wordTracking || hasNextPage)
+    }
+
+    /// The end of a read: what comes next, along the foot of the screen rather than in place of
+    /// the script. The last line is the one most likely to be read again, and it cannot be read
+    /// if the button has taken the screen.
+    @ViewBuilder
+    private var doneBar: some View {
+        if isFinished {
+            VStack(spacing: 0) {
+                // Fades the script out under the control instead of cutting it off, so the words
+                // above stay readable right up to it.
+                LinearGradient(
+                    colors: [.black.opacity(0), .black.opacity(0.92)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 72)
+                .allowsHitTesting(false)
+
+                doneControls
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, doneBarInset)
+                    .background(Color.black.opacity(0.92))
+            }
+            .transition(.opacity)
+        }
+    }
+
+    /// Clear of the progress meter along the bottom edge, when there is one.
+    private var doneBarInset: CGFloat {
+        showsMeter
+            ? ExternalLensMetrics.progressInset * 2 + ExternalLensMetrics.progressHeight
+            : 20
+    }
+
+    @ViewBuilder
+    private var doneControls: some View {
+        if hasNextPage {
+            Button {
+                speechRecognizer.shouldAdvancePage = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 22, weight: .bold))
+                    Text(content.nextIsSection ? "Next Section" : "Next Page")
+                        .font(.system(size: 22, weight: .bold))
                 }
-                .buttonStyle(.plain)
-            } else {
+                .foregroundStyle(.white)
+                .padding(.horizontal, 26)
+                .padding(.vertical, 12)
+                .background(Color.accentColor)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        } else {
+            HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 60))
+                    .font(.system(size: 24))
                     .foregroundStyle(.green)
-                Text("Done!")
-                    .font(.system(size: 32, weight: .bold))
+                Text("Done")
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
             }
+            .padding(.vertical, 12)
         }
-        .transition(.scale.combined(with: .opacity))
     }
 }
