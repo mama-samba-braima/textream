@@ -1015,12 +1015,14 @@ Happy presenting! [wave]
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            // Mid-take the phone remote is what the bottom of the sidebar is for; otherwise it is
-            // where pages are made.
-            if isRunning {
+            // The code to scan lives at the foot of the sidebar whatever is happening, so the
+            // phone can be paired before a take rather than during one. Mid-take the page-making
+            // controls step aside and leave it.
+            VStack(spacing: 0) {
                 remotePanel
-            } else {
-                sidebarFooter
+                if !isRunning {
+                    sidebarFooter
+                }
             }
         }
         .onDeleteCommand {

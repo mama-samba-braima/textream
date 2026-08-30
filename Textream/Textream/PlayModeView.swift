@@ -367,62 +367,59 @@ struct PlayModeView: View {
                     ElapsedTimeView(fontSize: 16)
                 }
 
-            // Stop stays exactly on the centre line whatever sits beside it, so the eye and the
-            // hand always find it in the same place.
-            ZStack {
-                circleButton(
-                    systemImage: "arrow.counterclockwise",
-                    diameter: 38,
-                    glyph: 15,
-                    fill: Color.white.opacity(0.15),
-                    tint: .white.opacity(0.85),
-                    help: "Read this section again from the top",
-                    action: { service.restartCurrentRead() }
-                )
-                .offset(x: -109)
-
-                // Beside stop and the same size: holding a take is as much a part of the job as
-                // ending one, and the hand should not have to hunt for a smaller target.
-                circleButton(
-                    systemImage: service.isReadPaused ? "play.fill" : "pause.fill",
-                    diameter: 44,
-                    glyph: 16,
-                    fill: Color.white.opacity(0.18),
-                    tint: service.isReadPaused ? .yellow.opacity(0.9) : .white,
-                    help: service.isReadPaused ? "Carry on reading" : "Hold the read here",
-                    action: { service.togglePause() }
-                )
-                .offset(x: -56)
-
-                circleButton(
-                    systemImage: "stop.fill",
-                    diameter: 44,
-                    glyph: 16,
-                    fill: Color.red,
-                    tint: .white,
-                    help: "Stop the read",
-                    action: onStop
-                )
-
-                if listeningMode != .classic {
+                // Laid out as a row rather than hung off a fixed centre, so the set is balanced
+                // in the pane however many buttons it has.
+                HStack(spacing: 12) {
                     circleButton(
-                        systemImage: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill",
+                        systemImage: "arrow.counterclockwise",
                         diameter: 38,
                         glyph: 15,
                         fill: Color.white.opacity(0.15),
-                        tint: speechRecognizer.isListening ? .yellow.opacity(0.9) : .white.opacity(0.45),
-                        help: speechRecognizer.isListening ? "Stop listening" : "Start listening",
-                        action: {
-                            if speechRecognizer.isListening {
-                                speechRecognizer.stop()
-                            } else {
-                                speechRecognizer.resume()
-                            }
-                        }
+                        tint: .white.opacity(0.85),
+                        help: "Read this section again from the top",
+                        action: { service.restartCurrentRead() }
                     )
-                    .offset(x: 53)
+
+                    // Beside stop and the same size: holding a take is as much a part of the job
+                    // as ending one, and the hand should not have to hunt for a smaller target.
+                    circleButton(
+                        systemImage: service.isReadPaused ? "play.fill" : "pause.fill",
+                        diameter: 44,
+                        glyph: 16,
+                        fill: Color.white.opacity(0.18),
+                        tint: service.isReadPaused ? .yellow.opacity(0.9) : .white,
+                        help: service.isReadPaused ? "Carry on reading" : "Hold the read here",
+                        action: { service.togglePause() }
+                    )
+
+                    circleButton(
+                        systemImage: "stop.fill",
+                        diameter: 44,
+                        glyph: 16,
+                        fill: Color.red,
+                        tint: .white,
+                        help: "Stop the read",
+                        action: onStop
+                    )
+
+                    if listeningMode != .classic {
+                        circleButton(
+                            systemImage: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill",
+                            diameter: 38,
+                            glyph: 15,
+                            fill: Color.white.opacity(0.15),
+                            tint: speechRecognizer.isListening ? .yellow.opacity(0.9) : .white.opacity(0.45),
+                            help: speechRecognizer.isListening ? "Stop listening" : "Start listening",
+                            action: {
+                                if speechRecognizer.isListening {
+                                    speechRecognizer.stop()
+                                } else {
+                                    speechRecognizer.resume()
+                                }
+                            }
+                        )
+                    }
                 }
-            }
             }
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
