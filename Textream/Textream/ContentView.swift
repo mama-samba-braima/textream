@@ -457,6 +457,9 @@ Happy presenting! [wave]
                             .overlay { dictationBar }
                             .frame(minWidth: 280)
                         playMirror
+                            // Right to the top of the window: the progress bar is the top edge of
+                            // the mirror, not something sitting below the toolbar's shadow.
+                            .ignoresSafeArea(.container, edges: .top)
                             .frame(minWidth: 320)
                     }
                     .transition(.opacity)

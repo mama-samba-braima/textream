@@ -168,11 +168,11 @@ struct PlayModeView: View {
                 : 0
 
             ZStack(alignment: .leading) {
-                Capsule()
+                Rectangle()
                     .fill(.white.opacity(0.12))
-                Capsule()
+                Rectangle()
                     .fill(Color.accentColor)
-                    .frame(width: max(6, geo.size.width * progress))
+                    .frame(width: max(3, geo.size.width * progress))
             }
             .contentShape(Rectangle())
             .gesture(isRunning ? scrubGesture(width: geo.size.width) : nil)
