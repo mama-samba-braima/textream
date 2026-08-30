@@ -703,7 +703,7 @@ struct NotchOverlayView: View {
         let wholeWord = Int(progress)
         let frac = progress - Double(wholeWord)
         var offset = 0
-        for i in 0..<min(wholeWord, words.count) {
+        for i in 0..<max(0, min(wholeWord, words.count)) {
             offset += words[i].count + 1 // +1 for space
         }
         if wholeWord < words.count {
@@ -1283,7 +1283,7 @@ struct FloatingOverlayView: View {
         let wholeWord = Int(progress)
         let frac = progress - Double(wholeWord)
         var offset = 0
-        for i in 0..<min(wholeWord, words.count) {
+        for i in 0..<max(0, min(wholeWord, words.count)) {
             offset += words[i].count + 1
         }
         if wholeWord < words.count {

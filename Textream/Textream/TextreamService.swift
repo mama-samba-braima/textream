@@ -163,6 +163,10 @@ class TextreamService: NSObject, ObservableObject {
     private var cachedPlainWordRanges: (text: String, ranges: [NSRange])?
 
     var hasNextPage: Bool {
+        // An index past the end would make the range below run backwards, which is a crash
+        // rather than an answer. It happens whenever the pages are replaced before the index
+        // catches up.
+        guard currentPageIndex + 1 < pages.count else { return false }
         for i in (currentPageIndex + 1)..<pages.count {
             if !pages[i].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return true

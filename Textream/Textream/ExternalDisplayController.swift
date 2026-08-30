@@ -162,6 +162,9 @@ struct ExternalDisplayView: View {
     /// Off when the surface is being mirrored into the app, which puts the clock with the
     /// transport controls instead.
     var showsClock: Bool = true
+    /// Off when mirrored: the app puts what comes next in the transport row, with the other
+    /// controls, rather than over the script.
+    var showsDoneBar: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -184,7 +187,7 @@ struct ExternalDisplayView: View {
         let wholeWord = Int(progress)
         let frac = progress - Double(wholeWord)
         var offset = 0
-        for i in 0..<min(wholeWord, words.count) {
+        for i in 0..<max(0, min(wholeWord, words.count)) {
             offset += words[i].count + 1
         }
         if wholeWord < words.count {
@@ -355,7 +358,7 @@ struct ExternalDisplayView: View {
     }
 
     private var isFinished: Bool {
-        isLive && isDone && (listeningMode == .wordTracking || hasNextPage)
+        isLive && showsDoneBar && isDone && (listeningMode == .wordTracking || hasNextPage)
     }
 
     /// The end of a read: what comes next, along the foot of the screen rather than in place of

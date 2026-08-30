@@ -84,7 +84,7 @@ struct PlayModeView: View {
         let wholeWord = Int(progress)
         let frac = progress - Double(wholeWord)
         var offset = 0
-        for i in 0..<min(wholeWord, words.count) {
+        for i in 0..<max(0, min(wholeWord, words.count)) {
             offset += words[i].count + 1
         }
         if wholeWord < words.count {
@@ -119,9 +119,6 @@ struct PlayModeView: View {
     /// a strip of every heading is one more thing to look past.
     private var sectionHeader: some View {
         VStack(spacing: 6) {
-            progressStepper
-                .frame(height: 20)
-
             if service.sections.indices.contains(service.currentSectionIndex) {
                 Text(service.sections[service.currentSectionIndex].title)
                     .font(.system(size: 17, weight: .semibold))
@@ -129,8 +126,7 @@ struct PlayModeView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.horizontal, 12)
-                    // The bar is the edge of the pane, so the title needs room to breathe under it.
-                    .padding(.top, 8)
+                    .padding(.top, 12)
 
                 Text("\(service.currentSectionIndex + 1)/\(service.sections.count)")
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
@@ -155,48 +151,15 @@ struct PlayModeView: View {
             .background(Color.black)
     }
 
+    /// True when the read has reached the end of the section.
+    private var isFinished: Bool {
+        isRunning && totalCharCount > 0 && effectiveCharCount >= totalCharCount
+    }
+
     private var percentComplete: Int {
         guard totalCharCount > 0 else { return 0 }
         let fraction = Double(effectiveCharCount) / Double(totalCharCount)
         return Int((min(1, max(0, fraction)) * 100).rounded())
-    }
-
-    /// Progress through the section, and a handle on it: dragging scrubs the read the same way
-    /// dragging the mirror does.
-    private var progressStepper: some View {
-        GeometryReader { geo in
-            let progress = totalCharCount > 0
-                ? min(1, max(0, Double(effectiveCharCount) / Double(totalCharCount)))
-                : 0
-
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .fill(.white.opacity(0.12))
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: max(3, geo.size.width * progress))
-            }
-            .contentShape(Rectangle())
-            .gesture(isRunning ? scrubGesture(width: geo.size.width) : nil)
-        }
-    }
-
-    private func scrubGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                onScrub(charOffset(atX: value.location.x, width: width))
-            }
-            .onEnded { value in
-                let offset = charOffset(atX: value.location.x, width: width)
-                timerWordProgress = wordProgressForCharOffset(offset)
-                onSeek(offset)
-            }
-    }
-
-    private func charOffset(atX x: CGFloat, width: CGFloat) -> Int {
-        guard width > 0 else { return 0 }
-        let fraction = min(1, max(0, Double(x / width)))
-        return Int(Double(totalCharCount) * fraction)
     }
 
     private var mirror: some View {
@@ -274,7 +237,8 @@ struct PlayModeView: View {
                 mirrorAxis: nil,
                 showsMeter: false,
                 isLive: isRunning,
-                showsClock: false
+                showsClock: false,
+                showsDoneBar: false
             )
         } else {
             FloatingOverlayView(
@@ -401,6 +365,20 @@ struct PlayModeView: View {
                         help: "Stop the read",
                         action: onStop
                     )
+
+                    // Only at the end of a section, and only if there is somewhere to go: the
+                    // same action the prompter used to spell out across the script.
+                    if isFinished && service.hasNextChunk {
+                        circleButton(
+                            systemImage: "forward.end.fill",
+                            diameter: 44,
+                            glyph: 16,
+                            fill: Color.accentColor,
+                            tint: .white,
+                            help: content.nextIsSection ? "Read the next section" : "Read the next page",
+                            action: { speechRecognizer.shouldAdvancePage = true }
+                        )
+                    }
 
                     if listeningMode != .classic {
                         circleButton(
