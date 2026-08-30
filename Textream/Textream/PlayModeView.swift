@@ -129,6 +129,8 @@ struct PlayModeView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.horizontal, 12)
+                    // The bar is the edge of the pane, so the title needs room to breathe under it.
+                    .padding(.top, 8)
 
                 Text("\(service.currentSectionIndex + 1)/\(service.sections.count)")
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
