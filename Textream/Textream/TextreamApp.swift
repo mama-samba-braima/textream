@@ -131,7 +131,9 @@ struct TextreamApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        // The window keeps the size it was given. `.contentSize` makes it chase the content's
+        // ideal size, so swapping the editor for the preview would resize and shift the window.
+        .windowResizability(.contentMinSize)
 
         .commands {
             CommandGroup(replacing: .appInfo) {

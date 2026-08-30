@@ -273,14 +273,16 @@ struct PlayModeView: View {
                 speechRecognizer: speechRecognizer,
                 mirrorAxis: nil,
                 showsMeter: false,
-                isLive: isRunning
+                isLive: isRunning,
+                showsClock: false
             )
         } else {
             FloatingOverlayView(
                 content: activeContent,
                 speechRecognizer: speechRecognizer,
                 baseHeight: NotchSettings.shared.textAreaHeight,
-                isLive: isRunning
+                isLive: isRunning,
+                showsClock: false
             )
         }
     }
@@ -359,6 +361,12 @@ struct PlayModeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
         } else if let onStop {
+            VStack(spacing: 10) {
+                // The clock belongs with the hand that stops the take, not in a far corner.
+                if NotchSettings.shared.showElapsedTime {
+                    ElapsedTimeView(fontSize: 16)
+                }
+
             // Stop stays exactly on the centre line whatever sits beside it, so the eye and the
             // hand always find it in the same place.
             ZStack {
@@ -401,6 +409,7 @@ struct PlayModeView: View {
                     )
                     .offset(x: 53)
                 }
+            }
             }
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

@@ -159,6 +159,9 @@ struct ExternalDisplayView: View {
     /// False when this is a standing preview of what pressing play would read, rather than a live
     /// read: it shows the script from the top and nothing moves it.
     var isLive: Bool = true
+    /// Off when the surface is being mirrored into the app, which puts the clock with the
+    /// transport controls instead.
+    var showsClock: Bool = true
 
     private var words: [String] { content.words }
     private var lineBreaks: [Int: Int] {
@@ -240,7 +243,7 @@ struct ExternalDisplayView: View {
         }
         .overlay(alignment: .topLeading) {
             // The clock times a take. Standing by, there is nothing to time.
-            if isLive && NotchSettings.shared.showElapsedTime {
+            if isLive && showsClock && NotchSettings.shared.showElapsedTime {
                 // Deliberately outside the lens padding: the timer belongs in the corner of the
                 // screen, not in the band the talent is reading from.
                 ElapsedTimeView(fontSize: ExternalLensMetrics.timerFontSize)

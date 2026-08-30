@@ -400,20 +400,21 @@ Happy presenting! [wave]
     }
 
     /// The writing side of the window: the editor, or the rendered Markdown when the preview is on.
-    @ViewBuilder
     private var scriptPane: some View {
-        if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
-            markdownPreview
-                .mask(fadeMask)
-                .paperSurface()
-                .transition(.opacity)
-        } else {
-            scriptEditor
-                .mask(fadeMask)
-                .paperSurface()
-                .overlay(alignment: .top) { findOverlay }
-                .transition(.opacity)
+        ZStack {
+            if NotchSettings.shared.markdownPreviewEnabled && !isRunning {
+                markdownPreview
+                    .mask(fadeMask)
+            } else {
+                scriptEditor
+                    .mask(fadeMask)
+                    .overlay(alignment: .top) { findOverlay }
+            }
         }
+        // The pane keeps its own size whatever is inside it: without this the split re-measures
+        // on every switch, which moves the divider and the window with it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .paperSurface()
     }
 
     private var playMirror: some View {
@@ -455,12 +456,12 @@ Happy presenting! [wave]
                     HSplitView {
                         scriptPane
                             .overlay { dictationBar }
-                            .frame(minWidth: 280)
+                            .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
                         playMirror
                             // Right to the top of the window: the progress bar is the top edge of
                             // the mirror, not something sitting below the toolbar's shadow.
                             .ignoresSafeArea(.container, edges: .top)
-                            .frame(minWidth: 320)
+                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .transition(.opacity)
                 }
@@ -712,9 +713,7 @@ Happy presenting! [wave]
 
     private var previewToggle: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                NotchSettings.shared.markdownPreviewEnabled.toggle()
-            }
+            NotchSettings.shared.markdownPreviewEnabled.toggle()
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: NotchSettings.shared.markdownPreviewEnabled ? "eye.fill" : "curlybraces")
