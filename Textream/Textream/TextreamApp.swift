@@ -14,6 +14,7 @@ extension Notification.Name {
     static let findNext = Notification.Name("findNext")
     static let findPrevious = Notification.Name("findPrevious")
     static let toggleMarkdownPreview = Notification.Name("toggleMarkdownPreview")
+    static let copyScript = Notification.Name("copyScript")
     /// Object carries the change in points, as a Double.
     static let adjustScriptTextSize = Notification.Name("adjustScriptTextSize")
     static let adjustSidebarTextSize = Notification.Name("adjustSidebarTextSize")
@@ -175,6 +176,13 @@ struct TextreamApp: App {
             }
             CommandGroup(after: .pasteboard) {
                 Divider()
+                Button("Copy Script") {
+                    NotificationCenter.default.post(name: .copyScript, object: nil)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                Divider()
+
                 Button("Find\u{2026}") {
                     NotificationCenter.default.post(name: .findInScript, object: nil)
                 }

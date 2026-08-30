@@ -43,6 +43,8 @@ struct ContentView: View {
     @State private var previewScrollTarget: Int?
     /// Character offset the editor should bring to the top, set by the sidebar outline.
     @State private var editorScrollTarget: Int?
+    /// Which `##` section the editor is showing on its own, or nil for the whole page.
+    @State private var focusedSectionIndex: Int?
     @State private var showFind = false
     @State private var findQuery = ""
     @State private var findMatches: [NSRange] = []
@@ -74,17 +76,53 @@ Happy presenting! [wave]
             ?? locale
     }
 
+    /// The section the sidebar has singled out, as it stands in the page right now. Nil when the
+    /// whole page is being edited, or when the section has been edited away.
+    private var focusedSection: ScriptSection? {
+        guard let index = focusedSectionIndex,
+              let id = service.pageID(at: service.currentPageIndex) else { return nil }
+        let sections = service.outline(for: id)
+        guard sections.indices.contains(index) else { return nil }
+        let range = sections[index].sourceRange
+        guard NSMaxRange(range) <= (service.currentPageText as NSString).length else { return nil }
+        return sections[index]
+    }
+
+    /// What the editor shows and writes back: one section of the page, or all of it. Writing back
+    /// puts the edited slice into exactly the range it came from, so the rest of the page is
+    /// untouched.
     private var currentText: Binding<String> {
         Binding(
             get: {
                 guard service.currentPageIndex < service.pages.count else { return "" }
-                return service.pages[service.currentPageIndex]
+                let page = service.pages[service.currentPageIndex]
+                guard let range = focusedSection?.sourceRange else { return page }
+                return (page as NSString).substring(with: range)
             },
             set: { newValue in
                 guard service.currentPageIndex < service.pages.count else { return }
-                service.pages[service.currentPageIndex] = newValue
+                let page = service.pages[service.currentPageIndex]
+                if let range = focusedSection?.sourceRange {
+                    service.pages[service.currentPageIndex] =
+                        (page as NSString).replacingCharacters(in: range, with: newValue)
+                } else {
+                    service.pages[service.currentPageIndex] = newValue
+                }
             }
         )
+    }
+
+    /// The text on screen, whichever of the two it is.
+    private var visibleScriptText: String { currentText.wrappedValue }
+
+    private func copyVisibleText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(visibleScriptText, forType: .string)
+    }
+
+    private func copyText(for pageID: UUID) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(service.text(for: pageID), forType: .string)
     }
 
     private var hasAnyContent: Bool {
@@ -304,7 +342,7 @@ Happy presenting! [wave]
             text: currentText,
             font: .systemFont(ofSize: NotchSettings.shared.editorFontSize, weight: .regular).rounded,
             highlightRange: dictationHighlightRange,
-            followRange: isRunning ? followRange : nil,
+            followRange: isRunning && focusedSectionIndex == nil ? followRange : nil,
             caretPosition: $dictationCaretPosition,
             scrollToTopPosition: $editorScrollTarget,
             searchRanges: showFind ? findMatches : [],
@@ -326,7 +364,7 @@ Happy presenting! [wave]
     /// The same page as rendered Markdown, for reading rather than editing.
     private var markdownPreview: some View {
         MarkdownPreviewView(
-            text: service.currentPageText,
+            text: visibleScriptText,
             fontSize: NotchSettings.shared.editorFontSize,
             scrollTarget: $previewScrollTarget
         )
@@ -657,7 +695,7 @@ Happy presenting! [wave]
             return
         }
 
-        let ranges = ScriptSearch.matches(of: findQuery, in: service.currentPageText)
+        let ranges = ScriptSearch.matches(of: findQuery, in: visibleScriptText)
         let previous = activeMatch
         findMatches = ranges
         if ranges.isEmpty {
@@ -813,6 +851,9 @@ Happy presenting! [wave]
             .onReceive(NotificationCenter.default.publisher(for: .findInScript)) { _ in
                 openFind()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .copyScript)) { _ in
+                copyVisibleText()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .toggleMarkdownPreview)) { _ in
                 NotchSettings.shared.markdownPreviewEnabled.toggle()
             }
@@ -881,9 +922,35 @@ Happy presenting! [wave]
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 8) {
+                    if focusedSection != nil {
+                        Button {
+                            focusedSectionIndex = nil
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 10))
+                                Text("Whole Script")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Editing one section. Click to open the whole script again.")
+                    }
+
                     fontSizeControl
 
                     previewToggle
+
+                    Button {
+                        copyVisibleText()
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(focusedSection != nil ? "Copy this section" : "Copy the whole script")
                 }
                 .padding(.horizontal, 8)
             }
@@ -983,6 +1050,8 @@ Happy presenting! [wave]
             get: { selectedPageIDs },
             set: { newValue in
                 selectedPageIDs = newValue
+                // Choosing the page, rather than a section of it, opens the whole script.
+                focusedSectionIndex = nil
                 guard newValue.count == 1,
                       let id = newValue.first,
                       let index = service.index(of: id),
@@ -995,6 +1064,19 @@ Happy presenting! [wave]
                 }
             }
         )
+    }
+
+    /// Makes `id` the page being worked on, the way clicking its row does.
+    private func selectPage(_ id: UUID) {
+        guard let index = service.index(of: id) else { return }
+        selectedPageIDs = [id]
+        guard index != service.currentPageIndex else { return }
+        if isRecording {
+            stopRecording()
+        }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            service.currentPageIndex = index
+        }
     }
 
     /// The pages an action applies to: the whole selection when the row is part of it,
@@ -1031,6 +1113,7 @@ Happy presenting! [wave]
                 : service.pageIDs.filter { selectedPageIDs.contains($0) })
         }
         .onChange(of: service.currentPageIndex) { _, index in
+            focusedSectionIndex = nil
             // The page being worked on shows its sections, so the outline follows the work.
             if let id = service.pageID(at: index) {
                 expandedOutlines.insert(id)
@@ -1414,12 +1497,19 @@ Happy presenting! [wave]
                 Color.clear.frame(width: sb(12), height: sb(16))
             }
 
-            Text("\(index + 1)")
-                .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
-                .foregroundStyle(.primary)
-                .frame(width: sb(20), height: sb(20))
-                .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: sb(5)))
+            Button {
+                selectPage(id)
+                focusedSectionIndex = nil
+            } label: {
+                Text("\(index + 1)")
+                    .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .frame(width: sb(20), height: sb(20))
+                    .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: sb(5)))
+            }
+            .buttonStyle(.plain)
+            .help("Open the whole script")
 
             Text(pageTitle(id))
                 .font(.system(size: sb(12)))
@@ -1460,17 +1550,27 @@ Happy presenting! [wave]
         let isRead = isCurrentPage && service.readSections.contains(section.id)
         let isDone = service.isDone(pageID: pageID, sectionTitle: section.title)
         return HStack(spacing: 6) {
-            Text("\(section.id + 1).")
-                .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
-                .foregroundStyle(isCurrent ? Color.accentColor : (isRead ? Color.green : Color.secondary.opacity(0.7)))
-                .frame(minWidth: sb(15), alignment: .trailing)
-            Text(section.title)
-                .font(.system(size: sb(11), weight: isCurrent ? .semibold : .regular))
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            // A button, not a tap gesture: a List row that cannot be selected swallows taps, so
+            // clicking a section did nothing at all.
+            Button {
+                openSection(pageID: pageID, section: section)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("\(section.id + 1).")
+                        .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
+                        .foregroundStyle(isCurrent ? Color.accentColor : (isRead ? Color.green : Color.secondary.opacity(0.7)))
+                        .frame(minWidth: sb(15), alignment: .trailing)
+                    Text(section.title)
+                        .font(.system(size: sb(11), weight: isCurrent ? .semibold : .regular))
+                        .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-            Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             checkbox(isDone: isDone, size: sb(11), help: isDone ? "Mark section as not done" : "Mark section as done") {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -1483,8 +1583,17 @@ Happy presenting! [wave]
         .contentShape(Rectangle())
         .help(section.title)
         .selectionDisabled()
-        .onTapGesture {
-            openSection(pageID: pageID, section: section)
+        .contextMenu {
+            Button {
+                NSPasteboard.general.clearContents()
+                let page = service.text(for: pageID) as NSString
+                let text = NSMaxRange(section.sourceRange) <= page.length
+                    ? page.substring(with: section.sourceRange)
+                    : section.body
+                NSPasteboard.general.setString(text, forType: .string)
+            } label: {
+                Label("Copy Section", systemImage: "doc.on.doc")
+            }
         }
     }
 
@@ -1532,7 +1641,11 @@ Happy presenting! [wave]
             }
         }
 
-        let location = section.headingRange?.location ?? 0
+        // The editor narrows to this section alone. Its heading is then the first line, so
+        // there is nothing to scroll to. Clicking the section you are already in gives the
+        // whole script back.
+        focusedSectionIndex = focusedSectionIndex == section.id ? nil : section.id
+        let location = 0
         if NotchSettings.shared.markdownPreviewEnabled {
             previewScrollTarget = location
         } else {
@@ -1599,6 +1712,16 @@ Happy presenting! [wave]
             Label(allDone ? (many ? "Mark Pages Not Done" : "Mark Not Done")
                           : (many ? "Mark \(targets.count) Pages Done" : "Mark Done"),
                   systemImage: allDone ? "circle" : "checkmark.circle")
+        }
+
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(
+                targets.map { service.text(for: $0) }.joined(separator: "\n\n"),
+                forType: .string
+            )
+        } label: {
+            Label(many ? "Copy \(targets.count) Pages" : "Copy Text", systemImage: "doc.on.doc")
         }
 
         Button {

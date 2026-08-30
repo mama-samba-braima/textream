@@ -18,13 +18,24 @@ struct ScriptSection: Identifiable, Equatable {
     /// Where the `##` line itself sits in the page text, so the sidebar can jump the editor to it.
     /// Nil for the prose that runs before the first heading, which has no line of its own.
     let headingRange: NSRange?
+    /// Everything this section owns in the page text, heading included, up to the next heading.
+    /// Editing one section on its own means writing back into exactly this range.
+    let sourceRange: NSRange
 
-    init(id: Int, title: String, body: String, wordRanges: [NSRange], headingRange: NSRange? = nil) {
+    init(
+        id: Int,
+        title: String,
+        body: String,
+        wordRanges: [NSRange],
+        headingRange: NSRange? = nil,
+        sourceRange: NSRange = NSRange(location: 0, length: 0)
+    ) {
         self.id = id
         self.title = title
         self.body = body
         self.wordRanges = wordRanges
         self.headingRange = headingRange
+        self.sourceRange = sourceRange
     }
 }
 
@@ -45,10 +56,11 @@ enum MarkdownScript {
         var sections: [ScriptSection] = []
         var title = "Intro"
         var headingRange: NSRange? = nil
+        var sectionStart = 0
         var body: [String] = []
         var ranges: [NSRange] = []
 
-        func flush() {
+        func flush(endingAt end: Int) {
             let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
                 body = []
@@ -62,7 +74,11 @@ enum MarkdownScript {
                 title: title,
                 body: text,
                 wordRanges: aligned,
-                headingRange: headingRange
+                headingRange: headingRange,
+                sourceRange: NSRange(
+                    location: sectionStart,
+                    length: max(0, min(end, ns.length) - sectionStart)
+                )
             ))
             body = []
             ranges = []
@@ -75,15 +91,16 @@ enum MarkdownScript {
                 // The document title belongs to the writer, not the read.
                 continue
             case let level? where level >= 2:
-                flush()
+                flush(endingAt: lineRange.location)
                 title = headingText(of: line)
                 headingRange = lineRange
+                sectionStart = lineRange.location
             default:
                 body.append(stripInline(line))
                 ranges.append(contentsOf: wordRanges(in: line, offsetBy: lineRange.location))
             }
         }
-        flush()
+        flush(endingAt: ns.length)
 
         // Renumber, since empty sections are dropped rather than kept as gaps.
         return sections.enumerated().map { index, section in
@@ -92,7 +109,8 @@ enum MarkdownScript {
                 title: section.title,
                 body: section.body,
                 wordRanges: section.wordRanges,
-                headingRange: section.headingRange
+                headingRange: section.headingRange,
+                sourceRange: section.sourceRange
             )
         }
     }
