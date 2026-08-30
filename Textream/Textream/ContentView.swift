@@ -332,6 +332,20 @@ Happy presenting! [wave]
         )
     }
 
+    /// The editor fades at the foot only. The first line is where you type and where a script
+    /// starts, and it should be as solid as the rest of it.
+    private var editorFadeMask: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .white, location: 0),
+                .init(color: .white, location: 0.93),
+                .init(color: .clear, location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     /// Softens the top and bottom edges of the reading pane so text fades out rather than
     /// being cut off by the toolbar and the transport controls.
     private var fadeMask: LinearGradient {
@@ -407,7 +421,7 @@ Happy presenting! [wave]
                     .mask(fadeMask)
             } else {
                 scriptEditor
-                    .mask(fadeMask)
+                    .mask(editorFadeMask)
                     .overlay(alignment: .top) { findOverlay }
             }
         }
