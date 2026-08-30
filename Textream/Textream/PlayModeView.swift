@@ -39,8 +39,6 @@ struct PlayModeView: View {
     private static let nudgeWords = 5
 
     @ObservedObject private var service = TextreamService.shared
-    /// Which chip the strip is parked on. Scrolling the bar never moves the read.
-    @State private var scrollAnchor: Int = 0
     @State private var timerWordProgress: Double = 0
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -110,33 +108,55 @@ struct PlayModeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !service.sections.isEmpty {
-                sectionBar
-            }
+            sectionHeader
             mirror
             readoutRow
         }
     }
 
-    /// Under the mirror rather than over it: how far through the section the read is, then where
-    /// that section sits in the script. Both are the operator's business, not the talent's, so
-    /// they get their own space instead of covering the words.
-    private var readoutRow: some View {
-        VStack(spacing: 8) {
+    /// How far through the section the read is, right along the top edge, then which section it
+    /// is. Only the section being read is named: the rest of the script is the sidebar's job, and
+    /// a strip of every heading is one more thing to look past.
+    private var sectionHeader: some View {
+        VStack(spacing: 6) {
             progressStepper
                 .frame(height: 20)
-                .padding(.horizontal, 16)
 
-            if !service.sections.isEmpty {
-                Text("Section \(service.currentSectionIndex + 1) of \(service.sections.count)")
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.6))
+            if service.sections.indices.contains(service.currentSectionIndex) {
+                Text(service.sections[service.currentSectionIndex].title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 12)
+
+                Text("\(service.currentSectionIndex + 1)/\(service.sections.count)")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55))
             }
         }
-        .padding(.top, 12)
-        .padding(.bottom, 14)
+        .padding(.bottom, service.sections.isEmpty ? 0 : 12)
         .frame(maxWidth: .infinity)
         .background(Color.black)
+    }
+
+    /// Under the mirror: how much of this section is behind you, as a number. The bar above says
+    /// the same thing at a glance; this says it exactly, which is what you want when deciding
+    /// whether to push on or go again.
+    private var readoutRow: some View {
+        Text("\(percentComplete)%")
+            .font(.system(size: 14, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.top, 10)
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity)
+            .background(Color.black)
+    }
+
+    private var percentComplete: Int {
+        guard totalCharCount > 0 else { return 0 }
+        let fraction = Double(effectiveCharCount) / Double(totalCharCount)
+        return Int((min(1, max(0, fraction)) * 100).rounded())
     }
 
     /// Progress through the section, and a handle on it: dragging scrubs the read the same way
@@ -175,95 +195,6 @@ struct PlayModeView: View {
         guard width > 0 else { return 0 }
         let fraction = min(1, max(0, Double(x / width)))
         return Int(Double(totalCharCount) * fraction)
-    }
-
-    /// Every section of the script, in order, so the read can be started anywhere. The current one
-    /// is marked, and sections already read are ticked, which is the whole state of a take at a
-    /// glance.
-    private var sectionBar: some View {
-        ScrollViewReader { proxy in
-            HStack(spacing: 0) {
-                scrollArrow(systemImage: "chevron.left", step: -1, proxy: proxy)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(service.sections) { section in
-                            sectionChip(section)
-                                .id(section.id)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
-                }
-
-                scrollArrow(systemImage: "chevron.right", step: 1, proxy: proxy)
-            }
-            .background(Color.black)
-            .onAppear { scrollAnchor = service.currentSectionIndex }
-            .onChange(of: service.currentSectionIndex) { _, index in
-                scrollAnchor = index
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(index, anchor: .center)
-                }
-            }
-        }
-    }
-
-    /// Walks the strip without moving the read, for reaching a section that is off screen.
-    private func scrollArrow(systemImage: String, step: Int, proxy: ScrollViewProxy) -> some View {
-        let target = scrollAnchor + step
-        let enabled = service.sections.indices.contains(target)
-
-        return Button {
-            guard service.sections.indices.contains(scrollAnchor + step) else { return }
-            scrollAnchor += step
-            withAnimation(.easeInOut(duration: 0.2)) {
-                proxy.scrollTo(scrollAnchor, anchor: .center)
-            }
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(enabled ? 0.75 : 0.2))
-                .frame(width: 30, height: 34)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .help(step > 0 ? "Scroll to later sections" : "Scroll to earlier sections")
-    }
-
-    private func sectionChip(_ section: ScriptSection) -> some View {
-        let isCurrent = section.id == service.currentSectionIndex
-        let isRead = service.readSections.contains(section.id)
-
-        return Button {
-            // Standing by, a chip picks where the take will start. Mid-take it jumps the read.
-            if isRunning {
-                service.readSection(at: section.id)
-            } else {
-                service.selectSection(at: section.id)
-            }
-        } label: {
-            HStack(spacing: 5) {
-                if isRead && !isCurrent {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.green)
-                }
-                Text(section.title)
-                    .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(isCurrent ? Color.white : Color.white.opacity(0.7))
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
-            .background(isCurrent ? Color.accentColor : Color.white.opacity(0.12))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(isCurrent
-              ? (isRunning ? "Playing this section" : "Play starts here")
-              : (isRunning ? "Play from this section" : "Start the next take here"))
     }
 
     private var mirror: some View {
