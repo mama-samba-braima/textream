@@ -887,64 +887,9 @@ Happy presenting! [wave]
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 8) {
-                    Button {
-                        if isRecording {
-                            stopRecording()
-                        }
-                        service.openFile()
-                    } label: {
-                        HStack(spacing: 4) {
-                            if service.currentFileURL != nil && service.pages != service.savedPages {
-                                Circle()
-                                    .fill(.orange)
-                                    .frame(width: 6, height: 6)
-                            }
-                            Text(service.currentFileURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
-                                .font(.system(size: 11, weight: .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-
-                    // Add page button in toolbar
-                    Button {
-                        if isRecording {
-                            stopRecording()
-                        }
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            _ = service.addPageNearSelection()
-                        }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("Page")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-
                     fontSizeControl
 
                     previewToggle
-
-                    Button {
-                        showSettings = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: NotchSettings.shared.listeningMode.icon)
-                                .font(.system(size: 10))
-                            Text(NotchSettings.shared.listeningMode == .wordTracking
-                                 ? languageLabel
-                                 : NotchSettings.shared.listeningMode.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 8)
             }
