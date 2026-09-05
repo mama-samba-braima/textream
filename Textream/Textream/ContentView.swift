@@ -45,6 +45,8 @@ struct ContentView: View {
     @State private var editorScrollTarget: Int?
     /// Which `##` section the editor is showing on its own, or nil for the whole page.
     @State private var focusedSectionIndex: Int?
+    /// Where a shift click starts counting from, as their sidebar keeps a start file.
+    @State private var selectionAnchorID: UUID?
     @State private var showFind = false
     @State private var findQuery = ""
     @State private var findMatches: [NSRange] = []
@@ -1049,6 +1051,37 @@ Happy presenting! [wave]
         )
     }
 
+    /// Picking a page the way ExcalidrawZ picks a file: a plain click replaces the selection,
+    /// command adds or removes one, and shift takes everything between the anchor and here. Only
+    /// a plain click moves the editor, so building a selection for a delete or a drag never yanks
+    /// the page out from under you.
+    private func selectPage(_ id: UUID, extending modifiers: NSEvent.ModifierFlags) {
+        let ids = service.pageIDs
+
+        if modifiers.contains(.shift),
+           let anchor = selectionAnchorID,
+           let start = ids.firstIndex(of: anchor),
+           let end = ids.firstIndex(of: id) {
+            selectedPageIDs = Set(ids[min(start, end)...max(start, end)])
+            return
+        }
+
+        if modifiers.contains(.command) {
+            if selectedPageIDs.contains(id) {
+                selectedPageIDs.remove(id)
+            } else {
+                selectedPageIDs.insert(id)
+            }
+            selectionAnchorID = id
+            return
+        }
+
+        selectionAnchorID = id
+        selectedPageIDs = [id]
+        focusedSectionIndex = nil
+        selectPage(id)
+    }
+
     /// Makes `id` the page being worked on, the way clicking its row does.
     private func selectPage(_ id: UUID) {
         guard let index = service.index(of: id) else { return }
@@ -1480,33 +1513,39 @@ Happy presenting! [wave]
                 Color.clear.frame(width: sb(12), height: sb(16))
             }
 
+            // The whole row is the control, the way their file rows are. A list row only reports
+            // a selection when the value actually changes, so clicking the page you are already
+            // on used to do nothing at all; a button always fires, so it can send you back to the
+            // whole script from anywhere along the row.
             Button {
-                selectPage(id)
-                focusedSectionIndex = nil
+                selectPage(id, extending: NSEvent.modifierFlags)
             } label: {
-                Text("\(index + 1)")
-                    .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .frame(width: sb(20), height: sb(20))
-                    .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: sb(5)))
+                HStack(spacing: 5) {
+                    Text("\(index + 1)")
+                        .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .frame(width: sb(20), height: sb(20))
+                        .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: sb(5)))
+
+                    Text(pageTitle(id))
+                        .font(.system(size: sb(12)))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(Color.primary)
+
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: sb(9)))
+                            .foregroundStyle(Color.accentColor)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Open the whole script")
-
-            Text(pageTitle(id))
-                .font(.system(size: sb(12)))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(Color.primary)
-
-            if isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: sb(9)))
-                    .foregroundStyle(Color.accentColor)
-            }
-
-            Spacer(minLength: 0)
 
             checkbox(isDone: isDone, size: sb(12), help: isDone ? "Mark as not done" : "Mark as done") {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -1514,8 +1553,13 @@ Happy presenting! [wave]
                 }
             }
         }
-        .contentShape(Rectangle())
+        .sidebarRowSurface(isSelected: selectedPageIDs.contains(id), padding: sb(6))
         .tag(id)
+        // The sidebar style paints its own selection straight over the row's pill, and clearing
+        // the row background does not stop it. Turning the list's selection off leaves the row as
+        // the only thing drawing, which is how their sidebar works in the first place.
+        .selectionDisabled()
+        .sidebarRowChrome()
         .draggable(dragPayload(for: id))
         .dropDestination(for: String.self) { items, _ in
             movePages(items, before: id)
@@ -1561,11 +1605,16 @@ Happy presenting! [wave]
                 }
             }
         }
-        .padding(.leading, sb(21))
-        .padding(.vertical, 1)
-        .contentShape(Rectangle())
+        // Lit when this is the section in play, whether that means the editor is holding it or
+        // the read is on it right now.
+        .sidebarRowSurface(
+            isSelected: isCurrent || (isCurrentPage && focusedSectionIndex == section.id),
+            depth: 1,
+            padding: sb(6)
+        )
         .help(section.title)
         .selectionDisabled()
+        .sidebarRowChrome()
         .contextMenu {
             Button {
                 NSPasteboard.general.clearContents()
