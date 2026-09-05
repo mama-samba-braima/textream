@@ -303,24 +303,36 @@ struct PlayModeView: View {
         .accessibilityHidden(true)
     }
 
-    /// The transport, at the foot of the mirror where the hand goes: play when standing by,
-    /// stop and its neighbours during a take. One button, one place, whatever the state.
+    /// The transport, at the foot of the mirror where the hand goes: play when standing by, stop
+    /// and its neighbours during a take. One dock, one place, whatever the state.
+    ///
+    /// Built as Excalidraw builds a toolbar: uniform icon only cells on a floating slab, the tool
+    /// you are meant to reach for filled with the accent colour, the one that ends things drawn in
+    /// red, and the bare key shortcuts printed in the corner of the cells that have them.
     @ViewBuilder
     private var stopControl: some View {
         if !isRunning {
             if let onPlay {
-                circleButton(
-                    systemImage: "play.fill",
-                    diameter: 44,
-                    glyph: 16,
-                    fill: Color.accentColor,
-                    tint: .white,
-                    help: service.sections.isEmpty
-                        ? "Start reading this page"
-                        : "Start reading section \(service.currentSectionIndex + 1)",
-                    action: onPlay
-                )
-                .offset(x: 1.5)
+                // Standing by there is one thing to press, and one thing is not a toolbar. A slab
+                // around a single cell reads as a button inside a box, so play keeps the bare
+                // accent circle it has always had and the dock appears when the take does.
+                Button(action: onPlay) {
+                    ZStack {
+                        Circle().fill(Color.accentColor)
+                        Image(systemName: "play.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .foregroundStyle(.white)
+                            .frame(width: 16, height: 16)
+                            .offset(x: 1.5)
+                    }
+                    .frame(width: 44, height: 44)
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                }
+                .buttonStyle(.plain)
+                .help(service.sections.isEmpty
+                      ? "Start reading this page"
+                      : "Start reading section \(service.currentSectionIndex + 1)")
                 .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
@@ -331,63 +343,81 @@ struct PlayModeView: View {
                     ElapsedTimeView(fontSize: 16)
                 }
 
-                // Laid out as a row rather than hung off a fixed centre, so the set is balanced
-                // in the pane however many buttons it has.
-                HStack(spacing: 12) {
-                    circleButton(
+                FloatingDock(tone: .dark, size: transportUnit) {
+                    // Section stepping used to exist only on the arrow keys, with nothing on
+                    // screen to say so. On a badged dock it can be both: a cell to press and the
+                    // key printed on it.
+                    if !service.sections.isEmpty {
+                        DockButton(
+                            systemImage: "chevron.left",
+                            help: "Back to the previous section",
+                            shortcut: "\u{2190}",
+                            isDisabled: !service.hasPreviousSection,
+                            tone: .dark,
+                            size: transportUnit,
+                            action: { service.goToPreviousSection() }
+                        )
+                        DockButton(
+                            systemImage: "chevron.right",
+                            help: "On to the next section",
+                            shortcut: "\u{2192}",
+                            isDisabled: !service.hasNextSection,
+                            tone: .dark,
+                            size: transportUnit,
+                            action: { service.advanceToNextSection() }
+                        )
+                        DockDivider(tone: .dark, size: transportUnit)
+                    }
+
+                    DockButton(
                         systemImage: "arrow.counterclockwise",
-                        diameter: 38,
-                        glyph: 15,
-                        fill: Color.white.opacity(0.15),
-                        tint: .white.opacity(0.85),
                         help: "Read this section again from the top",
+                        tone: .dark,
+                        size: transportUnit,
                         action: { service.restartCurrentRead() }
                     )
 
-                    // Beside stop and the same size: holding a take is as much a part of the job
-                    // as ending one, and the hand should not have to hunt for a smaller target.
-                    circleButton(
+                    // Holding a take is as much a part of the job as ending one, so it gets a
+                    // cell the same size as stop rather than a smaller target beside it.
+                    DockButton(
                         systemImage: service.isReadPaused ? "play.fill" : "pause.fill",
-                        diameter: 44,
-                        glyph: 16,
-                        fill: Color.white.opacity(0.18),
-                        tint: service.isReadPaused ? .yellow.opacity(0.9) : .white,
                         help: service.isReadPaused ? "Carry on reading" : "Hold the read here",
+                        tint: service.isReadPaused ? .yellow.opacity(0.9) : .white,
+                        tone: .dark,
+                        size: transportUnit,
                         action: { service.togglePause() }
                     )
 
-                    circleButton(
+                    DockButton(
                         systemImage: "stop.fill",
-                        diameter: 44,
-                        glyph: 16,
-                        fill: Color.red,
-                        tint: .white,
                         help: "Stop the read",
+                        isDestructive: true,
+                        tone: .dark,
+                        size: transportUnit,
                         action: onStop
                     )
 
-                    // Only at the end of a section, and only if there is somewhere to go: the
-                    // same action the prompter used to spell out across the script.
+                    // Only at the end of a section, and only if there is somewhere to go. Filled,
+                    // because at that moment it is the only thing worth pressing.
                     if isFinished && service.hasNextChunk {
-                        circleButton(
+                        DockButton(
                             systemImage: "forward.end.fill",
-                            diameter: 44,
-                            glyph: 16,
-                            fill: Color.accentColor,
-                            tint: .white,
                             help: content.nextIsSection ? "Read the next section" : "Read the next page",
+                            isEmphasized: true,
+                            tone: .dark,
+                            size: transportUnit,
                             action: { speechRecognizer.shouldAdvancePage = true }
                         )
                     }
 
                     if listeningMode != .classic {
-                        circleButton(
+                        DockDivider(tone: .dark, size: transportUnit)
+                        DockButton(
                             systemImage: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill",
-                            diameter: 38,
-                            glyph: 15,
-                            fill: Color.white.opacity(0.15),
-                            tint: speechRecognizer.isListening ? .yellow.opacity(0.9) : .white.opacity(0.45),
                             help: speechRecognizer.isListening ? "Stop listening" : "Start listening",
+                            tint: speechRecognizer.isListening ? .yellow.opacity(0.9) : .white.opacity(0.45),
+                            tone: .dark,
+                            size: transportUnit,
                             action: {
                                 if speechRecognizer.isListening {
                                     speechRecognizer.stop()
@@ -404,32 +434,9 @@ struct PlayModeView: View {
         }
     }
 
-    private func circleButton(
-        systemImage: String,
-        diameter: CGFloat,
-        glyph: CGFloat,
-        fill: Color,
-        tint: Color,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            ZStack {
-                Circle().fill(fill)
-                // Resizable rather than font-sized, so the glyph centres on the circle instead of
-                // on a text baseline.
-                Image(systemName: systemImage)
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(tint)
-                    .frame(width: glyph, height: glyph)
-            }
-            .frame(width: diameter, height: diameter)
-            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
+    /// The unit the transport dock is built from. Bigger than the writing side's, because this is
+    /// the pane a hand reaches for mid-take without looking down.
+    private var transportUnit: CGFloat { 26 }
 
     @ViewBuilder
     private var expandControl: some View {

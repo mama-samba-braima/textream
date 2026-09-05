@@ -451,6 +451,77 @@ Happy presenting! [wave]
         .animation(.easeInOut(duration: 0.25), value: isRecording)
     }
 
+    /// The script's own tools, on a slab that floats over the page rather than sitting up in the
+    /// window's chrome. Bottom leading, which is where Excalidraw keeps the tools that act on the
+    /// view rather than on the drawing, and which leaves the centre of the foot clear for the
+    /// dictation waveform and the right for the microphone.
+    private var scriptDock: some View {
+        FloatingDock(tone: .light) {
+            // Only while the editor is holding one section, since that is the only time there is
+            // anything to come back from.
+            if focusedSection != nil {
+                DockButton(
+                    systemImage: "arrow.up.left.and.arrow.down.right",
+                    help: "Editing one section. Click to open the whole script again.",
+                    isSelected: true
+                ) {
+                    focusedSectionIndex = nil
+                }
+                DockDivider()
+            }
+
+            DockButton(
+                systemImage: "textformat.size.smaller",
+                help: "Smaller script text (\u{2318}\u{2212})",
+                isDisabled: NotchSettings.shared.editorFontSize <= NotchSettings.minEditorFontSize
+            ) {
+                adjustFontSize(by: -1)
+            }
+
+            DockReadout(text: "\(Int(NotchSettings.shared.editorFontSize))")
+
+            DockButton(
+                systemImage: "textformat.size.larger",
+                help: "Bigger script text (\u{2318}+)",
+                isDisabled: NotchSettings.shared.editorFontSize >= NotchSettings.maxEditorFontSize
+            ) {
+                adjustFontSize(by: 1)
+            }
+
+            DockDivider()
+
+            // One icon that lights up when it is on, the way a picked tool does on their canvas,
+            // rather than a button whose label changes underneath you.
+            DockButton(
+                systemImage: "eye",
+                help: NotchSettings.shared.markdownPreviewEnabled
+                    ? "Back to editing (\u{21E7}\u{2318}P)"
+                    : "Preview the script as Markdown (\u{21E7}\u{2318}P)",
+                isSelected: NotchSettings.shared.markdownPreviewEnabled
+            ) {
+                NotchSettings.shared.markdownPreviewEnabled.toggle()
+            }
+
+            DockButton(
+                systemImage: "magnifyingglass",
+                help: showFind ? "Close find (\u{2318}F)" : "Find in the script (\u{2318}F)",
+                isSelected: showFind
+            ) {
+                if showFind { closeFind() } else { openFind() }
+            }
+
+            DockButton(
+                systemImage: "doc.on.doc",
+                help: focusedSection != nil
+                    ? "Copy this section (\u{21E7}\u{2318}C)"
+                    : "Copy the whole script (\u{21E7}\u{2318}C)"
+            ) {
+                copyVisibleText()
+            }
+        }
+        .padding(20)
+    }
+
     /// The writing side of the window: the editor, or the rendered Markdown when the preview is on.
     private var scriptPane: some View {
         ZStack {
@@ -466,6 +537,9 @@ Happy presenting! [wave]
         // The pane keeps its own size whatever is inside it: without this the split re-measures
         // on every switch, which moves the divider and the window with it.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Inside the paper, so the dock's material and hairline are drawn against a light
+        // appearance whatever the system is set to.
+        .overlay(alignment: .bottomLeading) { scriptDock }
         .paperSurface()
     }
 
@@ -712,61 +786,6 @@ Happy presenting! [wave]
 
     // MARK: - Reading Controls
 
-    /// Grows and shrinks the script. A teleprompter script is written to be read out loud, so the
-    /// size that suits writing is rarely the size that suits reading it back.
-    private var fontSizeControl: some View {
-        HStack(spacing: 2) {
-            Button {
-                adjustFontSize(by: -1)
-            } label: {
-                Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(NotchSettings.shared.editorFontSize <= NotchSettings.minEditorFontSize)
-            .help("Smaller script text")
-
-            Text("\(Int(NotchSettings.shared.editorFontSize))")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-
-            Button {
-                adjustFontSize(by: 1)
-            } label: {
-                Image(systemName: "textformat.size.larger")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(NotchSettings.shared.editorFontSize >= NotchSettings.maxEditorFontSize)
-            .help("Bigger script text")
-        }
-    }
-
-    private var previewToggle: some View {
-        Button {
-            NotchSettings.shared.markdownPreviewEnabled.toggle()
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: NotchSettings.shared.markdownPreviewEnabled ? "eye.fill" : "curlybraces")
-                    .font(.system(size: 10))
-                Text(NotchSettings.shared.markdownPreviewEnabled ? "Preview" : "Markdown")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(NotchSettings.shared.markdownPreviewEnabled ? Color.accentColor : .secondary)
-        }
-        .buttonStyle(.plain)
-        .help(NotchSettings.shared.markdownPreviewEnabled
-              ? "Back to editing (\u{21E7}\u{2318}P)"
-              : "Preview the script as Markdown (\u{21E7}\u{2318}P)")
-    }
-
     private func adjustFontSize(by delta: Double) {
         NotchSettings.shared.editorFontSize = min(
             NotchSettings.maxEditorFontSize,
@@ -919,42 +938,6 @@ Happy presenting! [wave]
         // minimum rather than one.
         .frame(minWidth: 700, minHeight: 420)
         .background(.ultraThinMaterial)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                HStack(spacing: 8) {
-                    if focusedSection != nil {
-                        Button {
-                            focusedSectionIndex = nil
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.system(size: 10))
-                                Text("Whole Script")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(Color.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Editing one section. Click to open the whole script again.")
-                    }
-
-                    fontSizeControl
-
-                    previewToggle
-
-                    Button {
-                        copyVisibleText()
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(focusedSection != nil ? "Copy this section" : "Copy the whole script")
-                }
-                .padding(.horizontal, 8)
-            }
-        }
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: NotchSettings.shared)
         }
