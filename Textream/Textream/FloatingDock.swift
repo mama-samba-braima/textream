@@ -63,12 +63,15 @@ struct FloatingDock<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        HStack(spacing: 0) {
+        // A capsule, as the Music transport is, and set wider than a toolbar so the glyphs sit in
+        // it with air around them rather than packed shoulder to shoulder.
+        HStack(spacing: size / 4) {
             content()
         }
-        .padding(size / 3)
+        .padding(.vertical, size / 4)
+        .padding(.horizontal, size / 2)
         .background {
-            RoundedRectangle(cornerRadius: size / 1.6)
+            Capsule()
                 .fill(.regularMaterial)
                 .stroke(tone.edge, lineWidth: 0.5)
         }
@@ -125,8 +128,9 @@ struct DockButton: View {
                 .foregroundStyle(foreground)
                 .padding(size / 5)
                 .background {
-                    RoundedRectangle(cornerRadius: size / 1.6)
-                        .fill(cellFill)
+                    // Round cells in a capsule bar, so a lit tool is a disc rather than a tile
+                    // with corners fighting the shape holding it.
+                    Capsule().fill(cellFill)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if let shortcut {

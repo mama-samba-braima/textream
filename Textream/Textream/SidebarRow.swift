@@ -39,11 +39,14 @@ struct SidebarRowSurface: ViewModifier {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .background {
+            // Music does not colour the pill. The picked row gets a plain grey wash and the
+            // colour goes on the icon instead, so a long sidebar stays calm and the eye is drawn
+            // by one small accent mark rather than by a coloured bar.
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(
                     isSelected
-                        ? Color.accentColor.opacity(isPressed ? 0.28 : 0.2)
-                        : Color.gray.opacity(isPressed ? 0.28 : 0.2)
+                        ? Color.primary.opacity(isPressed ? 0.14 : 0.09)
+                        : Color.primary.opacity(isPressed ? 0.09 : 0.05)
                 )
                 .opacity(isActive ? 1 : 0)
         }

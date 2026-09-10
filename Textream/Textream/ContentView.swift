@@ -524,8 +524,72 @@ Happy presenting! [wave]
         .padding(20)
     }
 
+    /// What the pane is showing, named the way Music names a view: large, bold, at the top left,
+    /// above the thing itself. The whole script goes by the page's title; one section goes by its
+    /// own heading, so the pane always says which of the two you are looking at.
+    private var scriptHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(scriptHeaderTitle)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if focusedSection != nil {
+                Text("Section")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.14))
+                    .clipShape(Capsule())
+            }
+
+            Spacer(minLength: 0)
+
+            // Music sets a count and a running time under an album's name. The same line here is
+            // what stops the header from being the '#' heading written out twice: it says how much
+            // there is and how long it will take to say it, which the script itself never does.
+            Text(scriptHeaderDetail)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+    }
+
+    /// How much is on screen and roughly how long it takes to read out, at a steady 150 words a
+    /// minute, which is about the pace a script like this is written for.
+    private var scriptHeaderDetail: String {
+        let spoken = MarkdownScript.plainText(from: visibleScriptText)
+        let words = spoken.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
+        guard words > 0 else { return "Empty" }
+
+        var parts: [String] = []
+        if focusedSection == nil, let id = service.pageID(at: service.currentPageIndex) {
+            let count = service.outline(for: id).count
+            if count > 0 {
+                parts.append("\(count) section\(count == 1 ? "" : "s")")
+            }
+        }
+        parts.append("\(words) word\(words == 1 ? "" : "s")")
+
+        let seconds = Int((Double(words) / 150.0 * 60.0).rounded())
+        parts.append(String(format: "%d:%02d", seconds / 60, seconds % 60))
+        return parts.joined(separator: "  \u{00B7}  ")
+    }
+
+    private var scriptHeaderTitle: String {
+        if let section = focusedSection, !section.title.isEmpty { return section.title }
+        guard let id = service.pageID(at: service.currentPageIndex) else { return "Script" }
+        return pageTitle(id)
+    }
+
     /// The writing side of the window: the editor, or the rendered Markdown when the preview is on.
     private var scriptPane: some View {
+        VStack(spacing: 0) {
+        scriptHeader
         ZStack {
             if NotchSettings.shared.markdownPreviewEnabled {
                 markdownPreview
@@ -539,6 +603,7 @@ Happy presenting! [wave]
         // The pane keeps its own size whatever is inside it: without this the split re-measures
         // on every switch, which moves the divider and the window with it.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
         // Inside the paper, so the dock's material and hairline are drawn against a light
         // appearance whatever the system is set to.
         .overlay(alignment: .bottomLeading) { scriptDock }
@@ -1112,6 +1177,22 @@ Happy presenting! [wave]
             }
         }
         .listStyle(.sidebar)
+        // Music washes its sidebar with a little of the app's colour, strongest at the top and
+        // gone by the middle. The list's own background is dropped so the window's material and
+        // the wash show through it.
+        .scrollContentBackground(.hidden)
+        .background {
+            LinearGradient(
+                stops: [
+                    .init(color: Color.accentColor.opacity(0.20), location: 0),
+                    .init(color: Color.accentColor.opacity(0.07), location: 0.4),
+                    .init(color: .clear, location: 0.85)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        }
         .safeAreaInset(edge: .bottom) {
             // The code to scan lives at the foot of the sidebar whatever is happening, so the
             // phone can be paired before a take rather than during one. Mid-take the page-making
@@ -1142,6 +1223,12 @@ Happy presenting! [wave]
         .onAppear {
             if let id = service.pageID(at: service.currentPageIndex) {
                 expandedOutlines.insert(id)
+                // Without this the sidebar opens with nothing lit, so it does not say which page
+                // the editor is already showing.
+                if selectedPageIDs.isEmpty {
+                    selectedPageIDs = [id]
+                    selectionAnchorID = id
+                }
             }
         }
         .alert(deleteAlertTitle, isPresented: deletingBinding) {
@@ -1178,7 +1265,7 @@ Happy presenting! [wave]
                 }
             } header: {
                 Text("Now Reading")
-                    .font(.system(size: sb(11), weight: .semibold))
+                    .font(.system(size: sb(11), weight: .bold))
                     .foregroundStyle(.secondary)
             }
         }
@@ -1256,8 +1343,9 @@ Happy presenting! [wave]
 
     private var ungroupedHeader: some View {
         Text("Pages")
-            .font(.system(size: sb(11), weight: .semibold))
+            .font(.system(size: sb(11), weight: .bold))
             .foregroundStyle(.secondary)
+            .padding(.top, sb(8))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .dropDestination(for: String.self) { items, _ in
@@ -1378,7 +1466,8 @@ Happy presenting! [wave]
                 .font(.system(size: sb(10)))
                 .foregroundStyle(folder.isPinned ? Color.accentColor : .secondary)
             Text(folder.name)
-                .font(.system(size: sb(11), weight: .semibold))
+                .font(.system(size: sb(11), weight: .bold))
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 4)
             Text("\(folder.pageIDs.count)")
@@ -1491,6 +1580,7 @@ Happy presenting! [wave]
         let hasOutline = !service.outline(for: id).isEmpty
         let isExpanded = expandedOutlines.contains(id)
         let isDone = service.isDone(id)
+        let isSelected = selectedPageIDs.contains(id)
         return HStack(spacing: 5) {
             // The chevron is a button of its own, so opening the outline never moves the
             // selection off the page the operator is working on.
@@ -1521,15 +1611,22 @@ Happy presenting! [wave]
                 selectPage(id, extending: NSEvent.modifierFlags)
             } label: {
                 HStack(spacing: 5) {
+                    // Music puts the colour on the row's icon rather than behind the whole
+                    // row. The number badge is this sidebar's icon, so it is the thing that
+                    // turns accent when the page is the one being worked on.
                     Text("\(index + 1)")
                         .font(.system(size: sb(10), weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isSelected ? Color.accentColor : .primary)
                         .frame(width: sb(20), height: sb(20))
-                        .background(service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
+                        .background(
+                            isSelected
+                                ? Color.accentColor.opacity(0.16)
+                                : (service.readPages.contains(index) ? Color.green.opacity(0.3) : Color.primary.opacity(0.1))
+                        )
                         .clipShape(RoundedRectangle(cornerRadius: sb(5)))
 
                     Text(pageTitle(id))
-                        .font(.system(size: sb(12)))
+                        .font(.system(size: sb(12), weight: isSelected ? .semibold : .regular))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundStyle(Color.primary)
