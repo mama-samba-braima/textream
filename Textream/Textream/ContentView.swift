@@ -657,7 +657,6 @@ Happy presenting! [wave]
                     playMirror
                         .contentCard()
                         .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
-                        .ignoresSafeArea(.container, edges: .top)
                         .transition(.opacity)
                 } else {
                     HSplitView {
@@ -671,10 +670,6 @@ Happy presenting! [wave]
                             .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
                             .frame(minWidth: 332, maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    // Both cards run to the top of the window, the same distance from its edge
-                    // as the sidebar panel. The progress bar is still the top edge of the mirror,
-                    // now the mirror's card rather than the window.
-                    .ignoresSafeArea(.container, edges: .top)
                     .transition(.opacity)
                 }
 
@@ -1003,6 +998,13 @@ Happy presenting! [wave]
                     pageSidebar
                 } detail: {
                     mainContent
+                        // At the root of the column, where the sidebar panel has its own. Any
+                        // deeper and the split view inside does not honour it, and the cards
+                        // start a toolbar's height below the panel beside them. Both cards run
+                        // to the top of the window, the same eight points from its edge as the
+                        // panel; the progress bar is still the top edge of the mirror, now the
+                        // mirror's card rather than the window.
+                        .ignoresSafeArea(.container, edges: .top)
                 }
                 .navigationSplitViewColumnWidth(min: sb(176), ideal: sb(216), max: sb(316))
                 .toolbar(removing: .sidebarToggle)
