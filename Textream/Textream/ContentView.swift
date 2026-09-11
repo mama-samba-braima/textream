@@ -1030,6 +1030,9 @@ Happy presenting! [wave]
         // The traffic lights sit on the sidebar panel, so they take the panel's inset plus a
         // margin of their own rather than AppKit's few points from the window corner.
         .background { TrafficLightInset(x: 22, y: 20) }
+        // The SwiftUI way of dropping the sidebar toggle does nothing on this macOS, so the
+        // toolbar item is taken out by hand.
+        .background { SplitViewChrome() }
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: NotchSettings.shared)
         }
