@@ -985,7 +985,7 @@ Happy presenting! [wave]
                 } detail: {
                     mainContent
                 }
-                .navigationSplitViewColumnWidth(min: sb(160), ideal: sb(200), max: sb(300))
+                .navigationSplitViewColumnWidth(min: sb(176), ideal: sb(216), max: sb(316))
             }
         }
         .alert(dropAlertTitle, isPresented: Binding(get: { dropError != nil }, set: { if !$0 { dropError = nil } })) {
@@ -1168,7 +1168,49 @@ Happy presenting! [wave]
             : [id]
     }
 
+    /// The sidebar as Music sets it: not a column of the window but a panel floating in one, with
+    /// rounded corners, a gap to the window's edge on every side, and the traffic lights sitting
+    /// on it rather than above it.
     private var pageSidebar: some View {
+        sidebarList
+            // Room at the top for the traffic lights and the sidebar toggle, which float over the
+            // panel now that it reaches the top of the window.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 30)
+            }
+            .background {
+                ZStack {
+                    // Lighter than the window behind it, so the panel reads as a sheet laid on
+                    // the window rather than a region of it.
+                    Color.white.opacity(0.55)
+                    // Music washes its sidebar with a little of the app's colour, strongest at
+                    // the top and gone by the middle.
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.accentColor.opacity(0.20), location: 0),
+                            .init(color: Color.accentColor.opacity(0.07), location: 0.4),
+                            .init(color: .clear, location: 0.85)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .allowsHitTesting(false)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.separator, lineWidth: 0.5)
+            }
+            // Flattened before the drop, so the shadow falls from the panel as one shape and not
+            // from every line of text through the translucent sheet behind it.
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.07), radius: 10, y: 3)
+            .padding(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 4))
+            .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var sidebarList: some View {
         List(selection: sidebarSelection) {
             if isRunning {
                 takeRows
@@ -1177,22 +1219,8 @@ Happy presenting! [wave]
             }
         }
         .listStyle(.sidebar)
-        // Music washes its sidebar with a little of the app's colour, strongest at the top and
-        // gone by the middle. The list's own background is dropped so the window's material and
-        // the wash show through it.
+        // The list's own background is dropped so the panel behind it is what shows.
         .scrollContentBackground(.hidden)
-        .background {
-            LinearGradient(
-                stops: [
-                    .init(color: Color.accentColor.opacity(0.20), location: 0),
-                    .init(color: Color.accentColor.opacity(0.07), location: 0.4),
-                    .init(color: .clear, location: 0.85)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .allowsHitTesting(false)
-        }
         .safeAreaInset(edge: .bottom) {
             // The code to scan lives at the foot of the sidebar whatever is happening, so the
             // phone can be paired before a take rather than during one. Mid-take the page-making
