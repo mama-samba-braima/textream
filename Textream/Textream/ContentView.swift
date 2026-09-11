@@ -17,6 +17,17 @@ extension View {
             .environment(\.colorScheme, .light)
             .background(Color.white)
     }
+
+    /// A pane as Music sets its content: a rounded card with a hairline edge, laid on the window
+    /// with a gap to its neighbours rather than butted against them.
+    func contentCard() -> some View {
+        self
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.separator, lineWidth: 0.5)
+            }
+    }
 }
 
 struct ContentView: View {
@@ -644,18 +655,26 @@ Happy presenting! [wave]
                 // press in the place the stop button will be.
                 if mirrorExpanded {
                     playMirror
+                        .contentCard()
+                        .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
+                        .ignoresSafeArea(.container, edges: .top)
                         .transition(.opacity)
                 } else {
                     HSplitView {
                         scriptPane
                             .overlay { dictationBar }
-                            .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
+                            .contentCard()
+                            .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
+                            .frame(minWidth: 288, maxWidth: .infinity, maxHeight: .infinity)
                         playMirror
-                            // Right to the top of the window: the progress bar is the top edge of
-                            // the mirror, not something sitting below the toolbar's shadow.
-                            .ignoresSafeArea(.container, edges: .top)
-                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                            .contentCard()
+                            .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
+                            .frame(minWidth: 332, maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    // Both cards run to the top of the window, the same distance from its edge
+                    // as the sidebar panel. The progress bar is still the top edge of the mirror,
+                    // now the mirror's card rather than the window.
+                    .ignoresSafeArea(.container, edges: .top)
                     .transition(.opacity)
                 }
 
@@ -986,6 +1005,7 @@ Happy presenting! [wave]
                     mainContent
                 }
                 .navigationSplitViewColumnWidth(min: sb(176), ideal: sb(216), max: sb(316))
+                .toolbar(removing: .sidebarToggle)
             }
         }
         .alert(dropAlertTitle, isPresented: Binding(get: { dropError != nil }, set: { if !$0 { dropError = nil } })) {
@@ -1005,6 +1025,9 @@ Happy presenting! [wave]
         // minimum rather than one.
         .frame(minWidth: 700, minHeight: 420)
         .background(.ultraThinMaterial)
+        // The traffic lights sit on the sidebar panel, so they take the panel's inset plus a
+        // margin of their own rather than AppKit's few points from the window corner.
+        .background { TrafficLightInset(x: 22, y: 20) }
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: NotchSettings.shared)
         }
