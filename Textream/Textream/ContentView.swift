@@ -657,17 +657,25 @@ Happy presenting! [wave]
                     playMirror
                         .contentCard()
                         .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
+                        .ignoresSafeArea(.container, edges: .top)
                         .transition(.opacity)
                 } else {
+                    // Each pane ignores the safe area itself, inside the split view. The split
+                    // view hosts its panes in AppKit views of their own, and each of those
+                    // takes the window's title bar inset straight from AppKit, so ignoring the
+                    // safe area anywhere outside the split view never reaches them and the cards
+                    // start a toolbar's height down.
                     HSplitView {
                         scriptPane
                             .overlay { dictationBar }
                             .contentCard()
                             .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
+                            .ignoresSafeArea(.container, edges: .top)
                             .frame(minWidth: 288, maxWidth: .infinity, maxHeight: .infinity)
                         playMirror
                             .contentCard()
                             .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
+                            .ignoresSafeArea(.container, edges: .top)
                             .frame(minWidth: 332, maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .transition(.opacity)
