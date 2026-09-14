@@ -47,6 +47,9 @@ struct ContentView: View {
     /// Play mode starts split, script on the left and the mirror on the right, and can be
     /// expanded to the mirror alone.
     @State private var mirrorExpanded = false
+    /// How wide the editor is at the moment, so the seam between paper and mirror can sit on the
+    /// divider wherever it has been dragged to.
+    @State private var editorWidth: CGFloat = 0
     @State private var selectedPageIDs: Set<UUID> = []
     /// Pages whose `##` sections are listed under them in the sidebar.
     @State private var expandedOutlines: Set<UUID> = []
@@ -621,6 +624,18 @@ Happy presenting! [wave]
         .paperSurface()
     }
 
+    /// The fade from paper to mirror, laid over the split view's divider so the line is under
+    /// it. Wide enough to read as one surface changing colour rather than as an edge, and kept
+    /// out of the way of the pointer so the divider can still be dragged through it.
+    private var seam: some View {
+        let width: CGFloat = 200
+        return LinearGradient(colors: [.white, .black], startPoint: .leading, endPoint: .trailing)
+            .frame(width: width)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .offset(x: editorWidth - width / 2)
+            .allowsHitTesting(false)
+    }
+
     private var playMirror: some View {
         PlayModeView(
             content: service.overlayController.overlayContent,
@@ -660,24 +675,28 @@ Happy presenting! [wave]
                         .ignoresSafeArea(.container, edges: .top)
                         .transition(.opacity)
                 } else {
+                    // One card for the paper and the mirror together, with the join between
+                    // them a run of grey rather than a line: white on the editor's side fading to
+                    // black on the mirror's. The split is still there to drag; the fade sits on
+                    // the divider and follows it.
+                    //
                     // Each pane ignores the safe area itself, inside the split view. The split
-                    // view hosts its panes in AppKit views of their own, and each of those
-                    // takes the window's title bar inset straight from AppKit, so ignoring the
-                    // safe area anywhere outside the split view never reaches them and the cards
-                    // start a toolbar's height down.
+                    // view hosts its panes in AppKit views of their own, and each of those takes
+                    // the window's title bar inset straight from AppKit, so ignoring the safe
+                    // area anywhere outside the split view never reaches them.
                     HSplitView {
                         scriptPane
                             .overlay { dictationBar }
-                            .contentCard()
-                            .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
                             .ignoresSafeArea(.container, edges: .top)
-                            .frame(minWidth: 288, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { editorWidth = $0 }
                         playMirror
-                            .contentCard()
-                            .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
                             .ignoresSafeArea(.container, edges: .top)
-                            .frame(minWidth: 332, maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    .overlay { seam }
+                    .contentCard()
+                    .padding(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
                     .transition(.opacity)
                 }
 
