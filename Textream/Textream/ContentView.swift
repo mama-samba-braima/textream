@@ -625,10 +625,10 @@ Happy presenting! [wave]
     }
 
     /// The fade from paper to mirror, laid over the split view's divider so the line is under
-    /// it. Wide enough to read as one surface changing colour rather than as an edge, and kept
-    /// out of the way of the pointer so the divider can still be dragged through it.
+    /// it. Narrow: enough to take the hard edge off the join without becoming a band of its own,
+    /// and kept out of the way of the pointer so the divider can still be dragged through it.
     private var seam: some View {
-        let width: CGFloat = 200
+        let width: CGFloat = 48
         return LinearGradient(colors: [.white, .black], startPoint: .leading, endPoint: .trailing)
             .frame(width: width)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
