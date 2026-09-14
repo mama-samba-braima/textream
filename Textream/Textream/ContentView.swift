@@ -624,15 +624,16 @@ Happy presenting! [wave]
         .paperSurface()
     }
 
-    /// The fade from paper to mirror, laid over the split view's divider so the line is under
-    /// it. Narrow: enough to take the hard edge off the join without becoming a band of its own,
-    /// and kept out of the way of the pointer so the divider can still be dragged through it.
+    /// Covers the split view's divider line with the mirror's own black, so the join between paper
+    /// and mirror is a clean edge from one to the other with nothing drawn on it. Sits just past
+    /// the editor's edge, where the divider is, and takes no pointer so the divider can still be
+    /// dragged through it.
     private var seam: some View {
-        let width: CGFloat = 48
-        return LinearGradient(colors: [.white, .black], startPoint: .leading, endPoint: .trailing)
+        let width: CGFloat = 2
+        return Color.black
             .frame(width: width)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .offset(x: editorWidth - width / 2)
+            .offset(x: editorWidth)
             .allowsHitTesting(false)
     }
 
