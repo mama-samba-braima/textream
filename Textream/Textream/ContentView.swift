@@ -32,6 +32,8 @@ extension View {
 
 struct ContentView: View {
     @ObservedObject private var service = TextreamService.shared
+    /// The projects folder, observed so a take copied in from Finder appears in the sidebar.
+    @ObservedObject private var library = ProjectLibrary.shared
     @State private var isRunning = false
     @State private var dictation = DictationManager()
     @State private var dictationHighlightRange: NSRange? = nil
@@ -44,6 +46,11 @@ struct ContentView: View {
     @State private var showAbout = false
     @State private var renamingFolderID: UUID?
     @State private var folderNameDraft: String = ""
+    @State private var renamingPageID: UUID?
+    @State private var pageNameDraft: String = ""
+    /// The file being looked at instead of the script: a take, a deck, a set of notes. The
+    /// prompter keeps showing the script, so a take is watched beside the words it came from.
+    @State private var selectedAsset: ProjectAsset?
     /// Play mode starts split, script on the left and the mirror on the right, and can be
     /// expanded to the mirror alone.
     @State private var mirrorExpanded = false
@@ -67,6 +74,7 @@ struct ContentView: View {
     @State private var findIndex = 0
     @FocusState private var isFindFocused: Bool
     @State private var pendingDeleteIDs: [UUID] = []
+    @State private var pendingDeleteProjectID: UUID?
     /// The word being read, pointed at in the script pane while a read is running.
     @State private var followRange: NSRange?
     @State private var languageSuggestion: SpeechLanguageSuggestion?
@@ -637,6 +645,17 @@ Happy presenting! [wave]
             .allowsHitTesting(false)
     }
 
+    /// The writing side of the card: the script, or a file from the project being looked at.
+    @ViewBuilder
+    private var editorPane: some View {
+        if let asset = selectedAsset {
+            AssetViewerPane(asset: asset) { selectedAsset = nil }
+                .paperSurface()
+        } else {
+            scriptPane
+        }
+    }
+
     private var playMirror: some View {
         PlayModeView(
             content: service.overlayController.overlayContent,
@@ -686,7 +705,7 @@ Happy presenting! [wave]
                     // the window's title bar inset straight from AppKit, so ignoring the safe
                     // area anywhere outside the split view never reaches them.
                     HSplitView {
-                        scriptPane
+                        editorPane
                             .overlay { dictationBar }
                             .ignoresSafeArea(.container, edges: .top)
                             .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
@@ -1200,6 +1219,7 @@ Happy presenting! [wave]
         selectionAnchorID = id
         selectedPageIDs = [id]
         focusedSectionIndex = nil
+        selectedAsset = nil
         selectPage(id)
     }
 
@@ -1325,8 +1345,8 @@ Happy presenting! [wave]
         } message: {
             Text(deleteAlertMessage)
         }
-        .alert("Rename Folder", isPresented: renamingBinding) {
-            TextField("Folder name", text: $folderNameDraft)
+        .alert("Rename Project", isPresented: renamingBinding) {
+            TextField("Project name", text: $folderNameDraft)
             Button("Cancel", role: .cancel) { renamingFolderID = nil }
             Button("Rename") {
                 if let id = renamingFolderID {
@@ -1334,6 +1354,34 @@ Happy presenting! [wave]
                 }
                 renamingFolderID = nil
             }
+        } message: {
+            Text("The folder in ~/Textream is renamed with it.")
+        }
+        .alert("Rename Script", isPresented: renamingPageBinding) {
+            TextField("Script name", text: $pageNameDraft)
+            Button("Cancel", role: .cancel) { renamingPageID = nil }
+            Button("Rename") {
+                if let id = renamingPageID {
+                    service.renamePage(id: id, to: pageNameDraft)
+                }
+                renamingPageID = nil
+            }
+        } message: {
+            Text("The file in the project folder is renamed with it.")
+        }
+        .alert("Move Project to Trash?", isPresented: deletingProjectBinding) {
+            Button("Cancel", role: .cancel) { pendingDeleteProjectID = nil }
+            Button("Move to Trash", role: .destructive) {
+                guard let id = pendingDeleteProjectID else { return }
+                pendingDeleteProjectID = nil
+                selectedAsset = nil
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    service.deleteFolder(id: id)
+                }
+                selectedPageIDs = service.pageID(at: service.currentPageIndex).map { [$0] } ?? []
+            }
+        } message: {
+            Text(deleteProjectMessage)
         }
     }
 
@@ -1386,55 +1434,95 @@ Happy presenting! [wave]
         }
     }
 
+    /// A project and everything in it: its scripts first, in reading order, then the rest of
+    /// its files. A project is a folder in `~/Textream`, so this is a view of a real folder.
     @ViewBuilder
     private var libraryRows: some View {
-            ForEach(service.folders) { folder in
-                Section(isExpanded: expansionBinding(for: folder)) {
-                    let ids = service.pageIDs(inFolder: folder.id)
-                    if ids.isEmpty {
-                        Text("Drag pages here")
-                            .font(.system(size: sb(11)))
-                            .foregroundStyle(.tertiary)
-                            .padding(.vertical, 2)
-                    } else {
-                        ForEach(sidebarItems(ids)) { item in
-                            sidebarRow(item)
-                        }
-                    }
-                } header: {
-                    folderHeader(folder)
+        ForEach(service.folders) { project in
+            Section(isExpanded: expansionBinding(for: project)) {
+                let ids = service.pageIDs(inFolder: project.id)
+                let files = library.assets(for: project.id)
+                if ids.isEmpty && files.isEmpty {
+                    Text("Empty. Add a script, or drop files in.")
+                        .font(.system(size: sb(11)))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 2)
                 }
+                ForEach(sidebarItems(ids)) { item in
+                    sidebarRow(item)
+                }
+                ForEach(files) { file in
+                    assetRow(file)
+                }
+            } header: {
+                projectHeader(project)
             }
-
-            // Only collapsible once there are folders: without a header there would be no
-            // control to reopen the section with.
-            if service.folders.isEmpty {
-                Section {
-                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
-                        sidebarRow(item)
-                    }
-                }
-            } else {
-                Section(isExpanded: $service.ungroupedIsExpanded) {
-                    ForEach(sidebarItems(service.pageIDs(inFolder: nil))) { item in
-                        sidebarRow(item)
-                    }
-                } header: {
-                    ungroupedHeader
-                }
-            }
+        }
     }
 
-    private var ungroupedHeader: some View {
-        Text("Pages")
-            .font(.system(size: sb(11), weight: .bold))
-            .foregroundStyle(.secondary)
-            .padding(.top, sb(8))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .dropDestination(for: String.self) { items, _ in
-                movePages(items, to: nil)
+    /// One file in a project that is not a script: a take, a deck, a set of notes. Clicking it
+    /// opens it where the script is, and leaves the prompter showing the script.
+    private func assetRow(_ asset: ProjectAsset) -> some View {
+        let isSelected = selectedAsset?.id == asset.id
+        return HStack(spacing: 5) {
+            Color.clear.frame(width: sb(12), height: sb(16))
+            Button {
+                selectedAsset = asset
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: asset.kind.icon)
+                        .font(.system(size: sb(10)))
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                        .frame(width: sb(20), height: sb(20))
+                        .background(isSelected ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: sb(5)))
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(asset.displayName)
+                            .font(.system(size: sb(12), weight: isSelected ? .semibold : .regular))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(Color.primary)
+                        Text(asset.subtitle)
+                            .font(.system(size: sb(9)))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(asset.name)
+        }
+        .sidebarRowSurface(isSelected: isSelected, padding: sb(6))
+        .selectionDisabled()
+        .sidebarRowChrome()
+        .contextMenu {
+            Button {
+                selectedAsset = asset
+            } label: {
+                Label("Open", systemImage: "eye")
+            }
+            Button {
+                NSWorkspace.shared.open(asset.url)
+            } label: {
+                Label("Open in Default App", systemImage: "arrow.up.forward.app")
+            }
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([asset.url])
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
+            }
+            Divider()
+            Button(role: .destructive) {
+                if selectedAsset?.id == asset.id { selectedAsset = nil }
+                library.trashAsset(asset)
+            } label: {
+                Label("Move to Trash", systemImage: "trash")
+            }
+        }
     }
 
     private var sidebarFooter: some View {
@@ -1444,17 +1532,18 @@ Happy presenting! [wave]
                     stopRecording()
                 }
                 withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedAsset = nil
                     _ = service.addPageNearSelection()
                 }
             } label: {
-                Label("Add Page", systemImage: "plus")
+                Label("New Script", systemImage: "plus")
                     .font(.system(size: sb(12), weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
-            .help("Add a new page")
+            .help("Add a script to this project")
 
             Spacer(minLength: 0)
 
@@ -1470,7 +1559,7 @@ Happy presenting! [wave]
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("New folder")
+            .help("New project")
 
             Button {
                 showSettings = true
@@ -1544,7 +1633,7 @@ Happy presenting! [wave]
         }
     }
 
-    private func folderHeader(_ folder: PageFolder) -> some View {
+    private func projectHeader(_ folder: PageFolder) -> some View {
         HStack(spacing: 6) {
             Image(systemName: folder.isPinned ? "pin.fill" : "folder")
                 .font(.system(size: sb(10)))
@@ -1569,25 +1658,37 @@ Happy presenting! [wave]
         .contextMenu {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedAsset = nil
                     _ = service.addPage(to: folder.id)
                 }
             } label: {
-                Label("Add Page to Folder", systemImage: "plus")
+                Label("New Script", systemImage: "plus")
             }
+            Button {
+                importFiles(into: folder.id)
+            } label: {
+                Label("Add Files…", systemImage: "tray.and.arrow.down")
+            }
+            Button {
+                guard let url = service.library.url(forProject: folder.id) else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
+            }
+            Divider()
             Button {
                 startRenaming(folder)
             } label: {
-                Label("Rename Folder…", systemImage: "pencil")
+                Label("Rename Project…", systemImage: "pencil")
             }
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     service.togglePin(folderID: folder.id)
                 }
             } label: {
-                Label(folder.isPinned ? "Unpin Folder" : "Pin Folder",
+                Label(folder.isPinned ? "Unpin Project" : "Pin Project",
                       systemImage: folder.isPinned ? "pin.slash" : "pin")
             }
-            Divider()
             Button {
                 service.moveFolder(id: folder.id, by: -1)
             } label: {
@@ -1600,12 +1701,24 @@ Happy presenting! [wave]
             }
             Divider()
             Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    service.deleteFolder(id: folder.id)
-                }
+                pendingDeleteProjectID = folder.id
             } label: {
-                Label("Delete Folder", systemImage: "trash")
+                Label("Move Project to Trash", systemImage: "trash")
             }
+        }
+    }
+
+    /// Copies files the operator picks into a project, so everything a project needs is in its
+    /// own folder rather than referenced from wherever it happened to be.
+    private func importFiles(into projectID: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "Add files to this project"
+        panel.prompt = "Add"
+        panel.begin { response in
+            guard response == .OK, !panel.urls.isEmpty else { return }
+            library.importFiles(panel.urls, into: projectID)
         }
     }
 
@@ -1649,8 +1762,10 @@ Happy presenting! [wave]
         }
     }
 
-    /// The name a page goes by: its `#` title when it has one, otherwise its opening words.
+    /// The name a script goes by: its file name, so the sidebar and Finder agree. A script
+    /// that has somehow lost its file falls back to its `#` title and then to its first words.
     private func pageTitle(_ id: UUID) -> String {
+        if let name = service.fileTitle(for: id), !name.isEmpty { return name }
         let text = service.text(for: id)
         if let title = MarkdownScript.documentTitle(from: text), !title.isEmpty {
             return title
@@ -1878,7 +1993,7 @@ Happy presenting! [wave]
         let currentFolder = service.folder(containing: id)
         let allPinned = targets.allSatisfy { service.isPinned($0) }
 
-        if !service.folders.isEmpty {
+        if service.folders.count > 1 {
             Menu {
                 ForEach(service.folders) { folder in
                     Button {
@@ -1891,12 +2006,23 @@ Happy presenting! [wave]
                         }
                     }
                 }
-                Divider()
-                Button("No Folder") {
-                    moveSelection(targets, to: nil)
-                }
             } label: {
-                Label(many ? "Move \(targets.count) Pages to Folder" : "Move to Folder", systemImage: "folder")
+                Label(many ? "Move \(targets.count) Scripts to Project" : "Move to Project", systemImage: "folder")
+            }
+        }
+
+        if !many {
+            Button {
+                startRenaming(page: id)
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+            Button {
+                guard let projectID = currentFolder,
+                      let url = service.library.url(forPage: id, in: projectID) else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
             }
         }
 
@@ -1909,7 +2035,7 @@ Happy presenting! [wave]
                 }
             }
         } label: {
-            Label(allPinned ? (many ? "Unpin Pages" : "Unpin Page") : (many ? "Pin Pages" : "Pin Page"),
+            Label(allPinned ? (many ? "Unpin Scripts" : "Unpin Script") : (many ? "Pin Scripts" : "Pin Script"),
                   systemImage: allPinned ? "pin.slash" : "pin")
         }
 
@@ -1922,8 +2048,8 @@ Happy presenting! [wave]
             }
         } label: {
             let allDone = targets.allSatisfy { service.isDone($0) }
-            Label(allDone ? (many ? "Mark Pages Not Done" : "Mark Not Done")
-                          : (many ? "Mark \(targets.count) Pages Done" : "Mark Done"),
+            Label(allDone ? (many ? "Mark Scripts Not Done" : "Mark Not Done")
+                          : (many ? "Mark \(targets.count) Scripts Done" : "Mark Done"),
                   systemImage: allDone ? "circle" : "checkmark.circle")
         }
 
@@ -1934,13 +2060,13 @@ Happy presenting! [wave]
                 forType: .string
             )
         } label: {
-            Label(many ? "Copy \(targets.count) Pages" : "Copy Text", systemImage: "doc.on.doc")
+            Label(many ? "Copy \(targets.count) Scripts" : "Copy Text", systemImage: "doc.on.doc")
         }
 
         Button {
             newFolder(with: targets)
         } label: {
-            Label(many ? "New Folder with \(targets.count) Pages" : "New Folder with Page",
+            Label(many ? "New Project with \(targets.count) Scripts" : "New Project with Script",
                   systemImage: "folder.badge.plus")
         }
 
@@ -1949,7 +2075,7 @@ Happy presenting! [wave]
             Button(role: .destructive) {
                 requestDelete(targets)
             } label: {
-                Label(many ? "Delete \(targets.count) Pages" : "Delete Page", systemImage: "trash")
+                Label(many ? "Delete \(targets.count) Scripts" : "Delete Script", systemImage: "trash")
             }
         }
     }
@@ -1957,6 +2083,11 @@ Happy presenting! [wave]
     private func startRenaming(_ folder: PageFolder) {
         folderNameDraft = folder.name
         renamingFolderID = folder.id
+    }
+
+    private func startRenaming(page id: UUID) {
+        pageNameDraft = service.fileTitle(for: id) ?? pageTitle(id)
+        renamingPageID = id
     }
 
     /// Deletes straight away when there is nothing to lose, and asks first when there is.
@@ -1986,15 +2117,15 @@ Happy presenting! [wave]
     }
 
     private var deleteAlertTitle: String {
-        pendingDeleteIDs.count > 1 ? "Delete \(pendingDeleteIDs.count) Pages?" : "Delete Page?"
+        pendingDeleteIDs.count > 1 ? "Delete \(pendingDeleteIDs.count) Scripts?" : "Delete Script?"
     }
 
     private var deleteAlertMessage: String {
         if pendingDeleteIDs.count > 1 {
-            return "These pages have content that will be lost."
+            return "These scripts have content. Their files go to the Trash."
         }
-        guard let id = pendingDeleteIDs.first, let index = service.index(of: id) else { return "" }
-        return "Page \(index + 1) has content that will be lost.\n\n\(pagePreview(service.text(for: id)))"
+        guard let id = pendingDeleteIDs.first else { return "" }
+        return "\(pageTitle(id)) has content. Its file goes to the Trash.\n\n\(pagePreview(service.text(for: id)))"
     }
 
     private var deletingBinding: Binding<Bool> {
@@ -2009,6 +2140,33 @@ Happy presenting! [wave]
             get: { renamingFolderID != nil },
             set: { if !$0 { renamingFolderID = nil } }
         )
+    }
+
+    private var renamingPageBinding: Binding<Bool> {
+        Binding(
+            get: { renamingPageID != nil },
+            set: { if !$0 { renamingPageID = nil } }
+        )
+    }
+
+    private var deletingProjectBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDeleteProjectID != nil },
+            set: { if !$0 { pendingDeleteProjectID = nil } }
+        )
+    }
+
+    /// Says what is about to go, because a project takes its takes with it.
+    private var deleteProjectMessage: String {
+        guard let id = pendingDeleteProjectID,
+              let project = service.folders.first(where: { $0.id == id }) else { return "" }
+        let scripts = project.pageIDs.count
+        let files = library.assets(for: id).count
+        var parts: [String] = []
+        if scripts > 0 { parts.append("\(scripts) script\(scripts == 1 ? "" : "s")") }
+        if files > 0 { parts.append("\(files) other file\(files == 1 ? "" : "s")") }
+        let contents = parts.isEmpty ? "The folder is empty." : "It holds \(parts.joined(separator: " and "))."
+        return "\(contents) The whole folder goes to the Trash, so it can be put back in Finder."
     }
 
     private func expansionBinding(for folder: PageFolder) -> Binding<Bool> {
@@ -2064,12 +2222,18 @@ Happy presenting! [wave]
     }
 
     private func newFolder(with pageIDs: [UUID] = []) {
-        let name = "Folder \(service.folders.count + 1)"
-        let folder = service.addFolder(named: name)
-        if !pageIDs.isEmpty {
+        let name = "Project \(service.folders.count + 1)"
+        guard let folder = service.addFolder(named: name) else { return }
+        if pageIDs.isEmpty {
+            // A project with nothing in it has nothing to type into, so it starts with a script.
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedAsset = nil
+                _ = service.addPage(to: folder.id)
+            }
+        } else {
             service.movePages(ids: pageIDs, to: folder.id)
         }
-        folderNameDraft = name
+        folderNameDraft = folder.name
         renamingFolderID = folder.id
     }
 
@@ -2110,7 +2274,6 @@ Happy presenting! [wave]
     @State private var isImporting = false
 
     private func handlePresentationDrop(url: URL) {
-        guard service.confirmDiscardIfNeeded() else { return }
         if isRecording {
             stopRecording()
         }
@@ -2120,9 +2283,11 @@ Happy presenting! [wave]
             do {
                 let notes = try PresentationNotesExtractor.extractNotes(from: url)
                 DispatchQueue.main.async {
-                    service.replacePages(notes)
-                    service.savedPages = notes
+                    // A deck dropped on the window becomes a project of its own, named after the
+                    // file, rather than replacing whatever is already open.
+                    service.importAsProject(notes, named: url.deletingPathExtension().lastPathComponent)
                     service.currentFileURL = nil
+                    selectedAsset = nil
                     isImporting = false
                 }
             } catch {

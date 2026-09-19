@@ -71,10 +71,17 @@ extension View {
 
     /// Strips the list's own chrome from a row so the surface above is the only thing drawn.
     /// Without this the sidebar style paints its selection underneath the pill.
+    ///
+    /// A source list insets every row by sixteen points of its own, on top of whatever the row
+    /// asks for, and nothing in SwiftUI turns that off: setting the table's style in AppKit makes
+    /// it worse, not better (measured: a row at 28 points went to 47). A negative inset does
+    /// cancel it, and is applied to the row rather than to the list so the arithmetic is in one
+    /// place. Ten points off the sixteen leaves the pill six from the edge of the panel, which is
+    /// where Music puts it.
     func sidebarRowChrome() -> some View {
         self
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 2, trailing: 6))
+            .listRowInsets(EdgeInsets(top: 0, leading: -10, bottom: 2, trailing: -10))
             .listRowSeparator(.hidden)
     }
 }

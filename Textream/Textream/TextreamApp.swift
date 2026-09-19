@@ -162,6 +162,14 @@ struct TextreamApp: App {
                 }
                 .keyboardShortcut("o", modifiers: .command)
 
+                // Projects are folders, so the way to work with one outside the app is to open
+                // the folder. This is where you find it the first time.
+                Button("Show Projects Folder in Finder") {
+                    let url = ProjectLibrary.shared.rootURL
+                    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+
                 Divider()
 
                 Button("Save") {

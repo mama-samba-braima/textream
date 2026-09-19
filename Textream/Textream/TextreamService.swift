@@ -66,54 +66,6 @@ private struct TextreamDocument: Codable {
     }
 }
 
-/// Everything needed to reopen exactly where the last session left off.
-///
-/// Written continuously to ~/.textream so that quitting, crashing or replacing the app never
-/// costs work. Saving to a .textream file stays a separate, deliberate act.
-private struct SessionSnapshot: Codable {
-    var version: Int = 1
-    var pages: [String]
-    var pageIDs: [UUID]
-    var folders: [PageFolder]
-    var pinnedPageIDs: [UUID]
-    var currentPageIndex: Int
-    /// Pages ticked off in the sidebar.
-    var donePageIDs: [UUID]
-    /// Sections ticked off, keyed by page ID and holding heading text.
-    var doneSections: [String: [String]]
-
-    init(
-        pages: [String],
-        pageIDs: [UUID],
-        folders: [PageFolder],
-        pinnedPageIDs: [UUID],
-        currentPageIndex: Int,
-        donePageIDs: [UUID],
-        doneSections: [String: [String]]
-    ) {
-        self.pages = pages
-        self.pageIDs = pageIDs
-        self.folders = folders
-        self.pinnedPageIDs = pinnedPageIDs
-        self.currentPageIndex = currentPageIndex
-        self.donePageIDs = donePageIDs
-        self.doneSections = doneSections
-    }
-
-    // Field by field, so a snapshot written by an older build still restores.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        pages = try container.decode([String].self, forKey: .pages)
-        pageIDs = try container.decodeIfPresent([UUID].self, forKey: .pageIDs) ?? []
-        folders = try container.decodeIfPresent([PageFolder].self, forKey: .folders) ?? []
-        pinnedPageIDs = try container.decodeIfPresent([UUID].self, forKey: .pinnedPageIDs) ?? []
-        currentPageIndex = try container.decodeIfPresent(Int.self, forKey: .currentPageIndex) ?? 0
-        donePageIDs = try container.decodeIfPresent([UUID].self, forKey: .donePageIDs) ?? []
-        doneSections = try container.decodeIfPresent([String: [String]].self, forKey: .doneSections) ?? [:]
-    }
-}
-
 class TextreamService: NSObject, ObservableObject {
     static let shared = TextreamService()
     let overlayController = NotchOverlayController()
@@ -122,12 +74,16 @@ class TextreamService: NSObject, ObservableObject {
     let directorServer = DirectorServer()
     var onOverlayDismissed: (() -> Void)?
     var launchedExternally = false
+    /// The projects folder. Scripts are files in it, so the sidebar is a view of a real folder
+    /// rather than of a database the app keeps to itself.
+    let library = ProjectLibrary.shared
     @Published var directorIsReading = false
 
     override init() {
         super.init()
-        restoreSession()
+        restoreLibrary()
         startAutosave()
+        watchLibrary()
         // Establish the file on first launch, so its absence always means a real problem
         // rather than "nothing has changed yet".
         DispatchQueue.main.async { [weak self] in
@@ -139,11 +95,9 @@ class TextreamService: NSObject, ObservableObject {
     /// Stable identity per page, parallel to `pages`. Folders reference pages by ID so that
     /// inserting, deleting or regrouping never corrupts membership the way indices would.
     @Published private(set) var pageIDs: [UUID] = [UUID()]
-    /// Folders, in sidebar order. Their pages come first in the running order, ungrouped pages last.
+    /// Projects, in sidebar order, each one a folder in `~/Textream`. Every script belongs to
+    /// one, and they are read in this order.
     @Published var folders: [PageFolder] = []
-    /// Expansion of the ungrouped "Pages" section. Owned here, not left to SwiftUI, so that adding
-    /// a page can open the section it lands in.
-    @Published var ungroupedIsExpanded: Bool = true
     /// Pages pinned to the top of the section they live in.
     @Published var pinnedPageIDs: Set<UUID> = []
     /// Pages ticked off in the sidebar. A script is a to-do list of things to record, so a page
@@ -623,30 +577,51 @@ class TextreamService: NSObject, ObservableObject {
         addPage(to: folderID(forPageAt: currentPageIndex))
     }
 
-    /// Adds a page, expanding the target section so the new page is never added out of sight.
+    /// Adds a script, as an empty Markdown file in the project, expanding it so the new script
+    /// is never added out of sight.
     @discardableResult
     func addPage(to folderID: UUID? = nil) -> Int {
         ensurePageIDs()
-        let id = UUID()
+        guard let projectID = folderID ?? projectForNewPage,
+              let id = library.createScript(in: projectID) else { return currentPageIndex }
         pages.append("")
         pageIDs.append(id)
-        expand(folderID)
-        if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
+        expand(projectID)
+        if let index = folders.firstIndex(where: { $0.id == projectID }) {
             folders[index].pageIDs.append(id)
         }
         rebuildOrder(keeping: id)
         return currentPageIndex
     }
 
-    /// Opens the section a page is about to land in, so it is never added out of sight.
-    private func expand(_ folderID: UUID?) {
-        guard let folderID else {
-            ungroupedIsExpanded = true
-            return
+    /// Where a new script goes when nothing says otherwise: the project being worked in.
+    private var projectForNewPage: UUID? {
+        if let id = pageID(at: currentPageIndex), let project = folder(containing: id) {
+            return project
         }
+        return folders.first?.id
+    }
+
+    /// Opens the project a script is about to land in, so it is never added out of sight.
+    private func expand(_ folderID: UUID?) {
+        guard let folderID else { return }
         if let index = folders.firstIndex(where: { $0.id == folderID }) {
             folders[index].isExpanded = true
         }
+    }
+
+    /// Renames a script, and its file with it. What the sidebar shows is what Finder shows.
+    func renamePage(id: UUID, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let projectID = folder(containing: id) else { return }
+        objectWillChange.send()
+        library.renameScript(id: id, in: projectID, to: trimmed)
+    }
+
+    /// The name a script goes by: its file name, without the extension.
+    func fileTitle(for pageID: UUID) -> String? {
+        guard let name = library.fileName(forPage: pageID) else { return nil }
+        return URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
     }
 
     func removePage(at index: Int) {
@@ -654,11 +629,17 @@ class TextreamService: NSObject, ObservableObject {
         removePages(ids: [id])
     }
 
-    /// Deletes pages, always leaving at least one behind.
+    /// Deletes scripts, always leaving at least one behind. The files go to the Trash rather
+    /// than being destroyed, so a delete can be undone in Finder.
     func removePages(ids: [UUID]) {
         ensurePageIDs()
         let doomed = Set(ids).intersection(pageIDs)
         guard !doomed.isEmpty, doomed.count < pages.count else { return }
+
+        for id in doomed {
+            guard let projectID = folder(containing: id) else { continue }
+            library.trashScript(id: id, in: projectID)
+        }
 
         let survivorID = pageID(at: currentPageIndex).flatMap { doomed.contains($0) ? nil : $0 }
         let readIDs = Set(readPages.compactMap { pageID(at: $0) }).subtracting(doomed)
@@ -680,19 +661,24 @@ class TextreamService: NSObject, ObservableObject {
         rebuildOrder(keeping: survivorID)
     }
 
-    /// Moves pages into a folder, or out to the ungrouped section when `folderID` is nil.
-    /// The page being edited stays selected, even when the move reorders the document around it.
+    /// Moves scripts into another project, file and all. The script being edited stays
+    /// selected, even when the move reorders the document around it.
     func movePages(ids: [UUID], to folderID: UUID?) {
         ensurePageIDs()
+        guard let destination = folderID else { return }
         let moving = ids.filter { pageIDs.contains($0) }
         guard !moving.isEmpty else { return }
         let kept = pageID(at: currentPageIndex)
 
+        for id in moving {
+            guard let source = folder(containing: id) else { continue }
+            library.moveScript(id: id, from: source, to: destination)
+        }
         for index in folders.indices {
             folders[index].pageIDs.removeAll { moving.contains($0) }
         }
-        expand(folderID)
-        if let folderID, let index = folders.firstIndex(where: { $0.id == folderID }) {
+        expand(destination)
+        if let index = folders.firstIndex(where: { $0.id == destination }) {
             folders[index].pageIDs.append(contentsOf: moving)
         }
         rebuildOrder(keeping: kept ?? moving.first)
@@ -711,6 +697,10 @@ class TextreamService: NSObject, ObservableObject {
         let kept = pageID(at: currentPageIndex)
         let destination = folder(containing: targetID)
 
+        for id in moving {
+            guard let source = folder(containing: id), let destination else { continue }
+            library.moveScript(id: id, from: source, to: destination)
+        }
         for index in folders.indices {
             folders[index].pageIDs.removeAll { moving.contains($0) }
         }
@@ -738,28 +728,53 @@ class TextreamService: NSObject, ObservableObject {
 
     // MARK: Folders
 
+    /// Makes a project: a folder in `~/Textream`. It starts empty, and whatever is put in it,
+    /// scripts or takes, is put in that folder.
     @discardableResult
-    func addFolder(named name: String) -> PageFolder {
-        let folder = PageFolder(name: name)
+    func addFolder(named name: String) -> PageFolder? {
+        guard let made = library.createProject(named: name) else { return nil }
+        let folder = PageFolder(id: made.id, name: made.name)
         folders.append(folder)
         return folder
     }
 
+    /// Renames the project and its folder together, so the name on screen is the name in Finder.
     func renameFolder(id: UUID, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let index = folders.firstIndex(where: { $0.id == id }) else { return }
-        folders[index].name = trimmed
+        folders[index].name = library.renameProject(id: id, to: trimmed) ?? trimmed
     }
 
-    /// Removes the folder. Its pages survive and drop back into the ungrouped section.
+    /// Puts a project in the Trash with everything in it: scripts, takes and all. Nothing is
+    /// destroyed outright, so it can be put back in Finder.
     func deleteFolder(id: UUID) {
-        let keptID = pageID(at: currentPageIndex)
-        if folders.first(where: { $0.id == id })?.pageIDs.isEmpty == false {
-            ungroupedIsExpanded = true
-        }
+        let doomed = Set(folders.first { $0.id == id }?.pageIDs ?? [])
+        let keptID = pageID(at: currentPageIndex).flatMap { doomed.contains($0) ? nil : $0 }
+        library.trashProject(id: id)
         folders.removeAll { $0.id == id }
+
+        if !doomed.isEmpty {
+            var keptTexts: [String] = []
+            var keptIDs: [UUID] = []
+            for (index, pageID) in pageIDs.enumerated() where !doomed.contains(pageID) {
+                keptIDs.append(pageID)
+                keptTexts.append(pages.indices.contains(index) ? pages[index] : "")
+            }
+            pages = keptTexts
+            pageIDs = keptIDs
+            pinnedPageIDs.subtract(doomed)
+            donePageIDs.subtract(doomed)
+            for id in doomed { doneSectionTitles[id] = nil }
+            readPages.removeAll()
+            currentPageIndex = max(0, min(currentPageIndex, pages.count - 1))
+        }
+
+        // There is always a project to type into, and always a script in it.
         if folders.isEmpty {
-            ungroupedIsExpanded = true
+            _ = addFolder(named: "Scripts")
+        }
+        if pages.isEmpty, let project = folders.first?.id {
+            _ = addPage(to: project)
         }
         rebuildOrder(keeping: keptID)
     }
@@ -773,22 +788,24 @@ class TextreamService: NSObject, ObservableObject {
         rebuildOrder(keeping: keptID)
     }
 
-    /// Replaces the whole document. Used by open and import.
-    func replacePages(
-        _ newPages: [String],
-        ids: [UUID]? = nil,
-        folders newFolders: [PageFolder] = [],
-        pinned: Set<UUID> = []
-    ) {
-        let texts = newPages.isEmpty ? [""] : newPages
-        pages = texts
-        pageIDs = ids?.count == texts.count ? (ids ?? []) : texts.map { _ in UUID() }
-        folders = newFolders
-        pinnedPageIDs = pinned
-        currentPageIndex = 0
-        readPages.removeAll()
-        ungroupedIsExpanded = true
-        rebuildOrder(keeping: pageIDs.first)
+    /// Takes scripts that came from elsewhere and makes a project of them, rather than
+    /// replacing what is already open: an import adds to the library, it never clears it.
+    @discardableResult
+    func importAsProject(_ texts: [String], named name: String) -> UUID? {
+        let kept = texts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !kept.isEmpty, let project = addFolder(named: name) else { return nil }
+        for text in kept {
+            guard let id = library.addScript(to: project.id, title: MarkdownScript.documentTitle(from: text) ?? "Untitled", text: text) else { continue }
+            pages.append(text)
+            pageIDs.append(id)
+            if let index = folders.firstIndex(where: { $0.id == project.id }) {
+                folders[index].pageIDs.append(id)
+            }
+        }
+        savedPages = pages
+        rebuildOrder(keeping: folders.first { $0.id == project.id }?.pageIDs.first)
+        saveSession()
+        return project.id
     }
 
     /// Applies an explicit flat order to `pages` and `pageIDs`.
@@ -865,16 +882,6 @@ class TextreamService: NSObject, ObservableObject {
 
     // MARK: - Session Persistence
 
-    /// Autosave lives here. Under the sandbox this resolves inside the app container, which also
-    /// survives the app being replaced.
-    var sessionDirectory: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".textream", isDirectory: true)
-    }
-
-    var sessionFile: URL {
-        sessionDirectory.appendingPathComponent("session.json")
-    }
-
     private var autosaveCancellable: AnyCancellable?
     private var isRestoringSession = false
 
@@ -898,53 +905,79 @@ class TextreamService: NSObject, ObservableObject {
         }
     }
 
+    /// Writes the library: the index, and every script whose text has changed.
     func saveSession() {
         guard !isRestoringSession else { return }
         ensurePageIDs()
-        let snapshot = SessionSnapshot(
-            pages: pages,
-            pageIDs: pageIDs,
-            folders: folders,
-            pinnedPageIDs: Array(pinnedPageIDs),
-            currentPageIndex: currentPageIndex,
-            donePageIDs: Array(donePageIDs),
-            doneSections: doneSectionTitles.reduce(into: [String: [String]]()) { result, entry in
-                result[entry.key.uuidString] = Array(entry.value)
-            }
-        )
-        do {
-            try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: sessionFile, options: .atomic)
-        } catch {
-            // Autosave is a convenience; a failure here must never interrupt a read.
-            NSLog("Textream: could not save session: \(error.localizedDescription)")
-        }
+        library.save(snapshot())
+        // Every script is a file that has just been written, so there is nothing left unsaved.
+        savedPages = pages
     }
 
-    /// Restores the last session. A missing or unreadable file just leaves the defaults in place.
-    private func restoreSession() {
-        guard let data = try? Data(contentsOf: sessionFile),
-              let snapshot = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
-              !snapshot.pages.isEmpty else { return }
+    /// The document as it stands, in the shape the library writes.
+    private func snapshot() -> LibrarySnapshot {
+        LibrarySnapshot(
+            projects: folders,
+            pages: pages,
+            pageIDs: pageIDs,
+            pinnedPageIDs: pinnedPageIDs,
+            donePageIDs: donePageIDs,
+            doneSectionTitles: doneSectionTitles,
+            currentPageIndex: currentPageIndex
+        )
+    }
 
+    /// Reads the projects folder into the app. On the first launch after the move to projects,
+    /// this is also what migrates the old session file.
+    private func restoreLibrary() {
         isRestoringSession = true
         defer { isRestoringSession = false }
 
-        replacePages(
-            snapshot.pages,
-            ids: snapshot.pageIDs.count == snapshot.pages.count ? snapshot.pageIDs : nil,
-            folders: snapshot.folders,
-            pinned: Set(snapshot.pinnedPageIDs)
-        )
+        let snapshot = library.load()
+        guard !snapshot.pages.isEmpty else { return }
+
+        let keptID = pageID(at: currentPageIndex)
+        pages = snapshot.pages
+        pageIDs = snapshot.pageIDs
+        folders = snapshot.projects
+        pinnedPageIDs = snapshot.pinnedPageIDs
+        donePageIDs = snapshot.donePageIDs
+        doneSectionTitles = snapshot.doneSectionTitles
         savedPages = snapshot.pages
-        donePageIDs = Set(snapshot.donePageIDs)
-        doneSectionTitles = snapshot.doneSections.reduce(into: [UUID: Set<String>]()) { result, entry in
-            guard let id = UUID(uuidString: entry.key) else { return }
-            result[id] = Set(entry.value)
-        }
-        if pages.indices.contains(snapshot.currentPageIndex) {
+        readPages.removeAll()
+        // The page being worked on survives a reload, so a take copied into a project in Finder
+        // never moves the operator off the script they are reading.
+        if let keptID, let position = pageIDs.firstIndex(of: keptID) {
+            currentPageIndex = position
+        } else if pages.indices.contains(snapshot.currentPageIndex) {
             currentPageIndex = snapshot.currentPageIndex
+        } else {
+            currentPageIndex = 0
+        }
+    }
+
+    /// Follows the folder. A script added, renamed or deleted in Finder shows up in the sidebar,
+    /// and anything typed here is written out first so reading the folder back never loses it.
+    private func watchLibrary() {
+        library.startWatching { [weak self] in
+            guard let self, !self.isRestoringSession else { return }
+            self.saveSession()
+            // A script added, renamed or deleted changes the shape of the library, so it is read
+            // back whole. A script merely edited elsewhere is just new text for a page.
+            if self.library.hasScriptChanges(in: self.folders) {
+                self.restoreLibrary()
+                return
+            }
+            let edits = self.library.externalEdits(for: self.snapshot())
+            guard !edits.isEmpty else { return }
+            for (id, text) in edits {
+                guard let position = self.index(of: id), self.pages.indices.contains(position) else { continue }
+                self.pages[position] = text
+            }
+            self.savedPages = self.pages
+            if let current = self.pageID(at: self.currentPageIndex), edits[current] != nil {
+                self.refreshSections()
+            }
         }
     }
 
@@ -1001,9 +1034,9 @@ class TextreamService: NSObject, ObservableObject {
         pages != savedPages
     }
 
+    /// Opening a file adds it to the library as a project of its own, so there is nothing to
+    /// discard and nothing to ask about.
     func openFile() {
-        guard confirmDiscardIfNeeded() else { return }
-
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [
             .init(filenameExtension: "textream")!,
@@ -1035,8 +1068,7 @@ class TextreamService: NSObject, ObservableObject {
             do {
                 let notes = try PresentationNotesExtractor.extractNotes(from: url)
                 DispatchQueue.main.async {
-                    self?.replacePages(notes)
-                    self?.savedPages = notes
+                    self?.importAsProject(notes, named: url.deletingPathExtension().lastPathComponent)
                     self?.currentFileURL = nil
                 }
             } catch {
@@ -1080,22 +1112,14 @@ class TextreamService: NSObject, ObservableObject {
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             let loadedPages: [String]
+            let name = url.deletingPathExtension().lastPathComponent
             if let legacy = try? decoder.decode([String].self, from: data) {
                 loadedPages = legacy
-                guard !loadedPages.isEmpty else { return }
-                replacePages(loadedPages)
             } else {
-                let document = try decoder.decode(TextreamDocument.self, from: data)
-                loadedPages = document.pages
-                guard !loadedPages.isEmpty else { return }
-                replacePages(
-                    document.pages,
-                    ids: document.pageIDs,
-                    folders: document.folders,
-                    pinned: Set(document.pinnedPageIDs)
-                )
+                loadedPages = try decoder.decode(TextreamDocument.self, from: data).pages
             }
-            savedPages = pages
+            guard !loadedPages.isEmpty else { return }
+            importAsProject(loadedPages, named: name)
             currentFileURL = url
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch {
